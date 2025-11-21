@@ -1,0 +1,25 @@
+[project]
+name = "polarbear-backend"
+version = "0.1.0"
+description = "PolarBear Search Engine Backend"
+authors = [
+    {name = "Antigravity"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi (>=0.121.3,<0.122.0)",
+    "uvicorn (>=0.38.0,<0.39.0)",
+    "meilisearch (>=0.38.0,<0.39.0)",
+    "faiss-cpu (>=1.13.0,<2.0.0)",
+    "numpy (>=2.3.5,<3.0.0)",
+    "pandas (>=2.3.3,<3.0.0)",
+    "sentence-transformers (>=5.1.2,<6.0.0)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

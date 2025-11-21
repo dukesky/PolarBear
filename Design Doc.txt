@@ -1,0 +1,590 @@
+﻿PolarBear — Design Document (v1.0)
+Open-Source Hybrid Search System for SMEs
+1. Overview
+PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifically for small and medium-sized businesses (SMEs). It allows business owners to easily create powerful search functionality for their products, menus, inventory, or service catalogs — without any technical knowledge.
+PolarBear is built to be:
+* Extremely easy for non-technical users
+
+* Cloud-native (GCP)
+
+* Supports both text-match AND semantic search
+
+* Open-source + optional cloud hosting
+
+* Bring-Your-Own-Cloud (BYOC) compatible
+
+Users can upload their product list via CSV, Excel, or Google Sheets, configure a search engine from a simple admin dashboard, and embed the search widget or API into their website.
+2. Target Users
+PolarBear is designed for:
+1) Shopify / Online Sellers
+   * Hundreds to thousands of SKUs
+
+   * Need better site search to increase conversions
+
+   * Poor built-in search results in lost revenue
+
+2) Brick-and-Mortar Stores
+      * POS inventory exported via CSV
+
+      * Want internal employee search or customer webpage search
+
+3) General SMEs
+         * Restaurants (menu search)
+
+         * Clinics (service search)
+
+         * Real estate listings
+
+         * Local catalog-based businesses
+
+Persona Summary
+Persona
+	Pain Points
+	PolarBear Value
+	Business Owner
+	No tech skills
+	No-code setup in 5 minutes
+	Store Manager
+	Slow inventory lookup
+	Fast, hybrid semantic search
+	E-commerce Seller
+	Poor product search → low conversions
+	High-quality search + ranking rules
+	________________
+
+
+3. Goals & Non-Goals
+Goals
+            * Let every SME set up enterprise-grade search without code
+
+            * Provide hybrid search (BM25 + embeddings)
+
+            * Offer cloud-native deployment on GCP
+
+            * Allow Bring-Your-Own-Cloud (users connect their GCP account)
+
+            * Provide AI insights to improve catalog/search quality
+
+Non-Goals (for MVP)
+               * No multi-language support initially
+
+               * No real-time streaming inventory sync
+
+               * No native Shopify connector (v2)
+
+               * No full custom ML ranking model (v2/v3)
+
+
+
+4. System Requirements
+4.1 Functional Requirements
+Core MVP
+                  * User onboarding (email/password or Google login)
+
+                  * Upload product data from:
+
+                     * CSV
+
+                     * Excel
+
+                     * Google Sheet
+
+                        * Automatic schema inference
+
+                        * Field mapping (title, description, price, category)
+
+                        * Build search index using:
+
+                           * Meilisearch (default)
+
+                           * Optional: PolarBear Custom Engine (future)
+
+                              * Hybrid search:
+
+                                 * Keyword BM25 (Meilisearch)
+
+                                 * Semantic search (FAISS + embeddings)
+
+                                 * Weighted ranking fusion
+
+                                    * Admin dashboard (web-based)
+
+                                    * Synonym configuration
+
+                                    * Ranking rules (manual boosting)
+
+                                    * Manual pinning
+
+                                    * Analytics dashboard:
+
+                                       * Popular queries
+
+                                       * Zero-result queries
+
+                                          * Supplement suggestions (missing products)
+
+                                          * Serving cost analysis (compute cost estimation)
+
+                                          * GCP connection setup (BYOC)
+
+Optional AI Features (Phase 2)
+                                             * Auto-synonym recommendations
+
+                                             * “Fix your catalog” recommendations
+
+                                             * AI query rewriting
+
+                                             * Intent detection
+
+5. Non-Functional Requirements
+                                                * High usability: Should be operable by users with no technical background
+
+                                                * Cloud-native: Must run cleanly on GCP
+
+                                                * Scalability: Should support catalogs up to 500k items
+
+                                                * Low latency search: <150 ms per search
+
+                                                * Cost-efficient: Optimized CPU usage; embeddings cached
+
+                                                * Reliability: >99% uptime target for hosted SaaS
+
+                                                * Security: BYOC access controlled by OAuth2 (GCP service identity)
+
+6. Architecture Overview
+                       ┌─────────────────────────┐
+                        │     PolarBear Console    │
+                        │  (UI / Admin Dashboard)  │
+                        └────────────┬────────────┘
+                                     │
+                      ┌──────────────▼──────────────┐
+                      │        Control Server        │
+                      │  Auth, User/Project Mgmt     │
+                      │  Cloud Credential Manager    │
+                      └──────────────┬──────────────┘
+                                     │
+                ┌────────────────────▼────────────────────┐
+                │               Data Sync                  │
+                │ CSV/Excel Upload, Google Sheet Import   │
+                │ Schema Inference, Field Mapping         │
+                └────────────────────┬────────────────────┘
+                                     │
+   ┌─────────────────────────────────▼────────────────────────────────┐
+   │                        Indexing Engine Layer                     │
+   │  - Meilisearch (primary BM25 engine)                             │
+   │  - FAISS (vector index for embeddings)                           │
+   │  - Embedding model (BGE / SBERT / OpenAI / GTE / Offline)        │
+   │  - Hybrid Ranking Module                                         │
+   └─────────────────────────────────┬────────────────────────────────┘
+                                     │
+                     ┌───────────────▼───────────────┐
+                     │          Search API            │
+                     │      /search, /suggest         │
+                     └───────────────┬───────────────┘
+                                     │
+                       ┌─────────────▼─────────────┐
+                       │     Frontend Widgets       │
+                       │  (JS SDK, React Component) │
+                       └────────────────────────────┘
+
+
+
+
+7. Component Details
+7.1 Admin Dashboard
+Features:
+MVP
+                                                   * Onboarding
+
+                                                   * Data upload/sync
+
+                                                   * Field mapping
+
+                                                   * Preview search results
+
+                                                   * Ranking configuration
+
+                                                   * Synonym management
+
+                                                   * Pin product for a query
+
+                                                   * Cost analysis (estimate GCP CPU & storage)
+
+                                                   * Search analytics dashboard
+
+Phase 2
+                                                      * AI insights
+
+                                                      * Query rewriting suggestions
+
+                                                      * Missing product alert (e.g., "Users search for X but you don’t have it")
+
+8. Search Engine Design
+8.1 Keyword Search
+                                                         * Engine: Meilisearch 1.8+
+
+                                                         * Index fields:
+
+                                                            * Title
+
+                                                            * Description
+
+                                                            * Brand
+
+                                                            * Category
+
+                                                            * Tags
+
+8.2 Semantic Search
+                                                               * Vector DB: FAISS (Flat or HNSW)
+
+                                                               * Embedding choices:
+
+                                                                  * BGE-large (default open-source)
+
+                                                                  * GTE (smaller open-source)
+
+                                                                  * Sentence-BERT
+
+                                                                  * OpenAI embeddings
+
+                                                                  * Offline embedding model
+
+8.3 Hybrid Ranking
+score = w_bm25 * bm25_score + w_vec * cosine_similarity + w_rules * rule_score
+
+
+User can configure:
+                                                                     * Weight of BM25
+
+                                                                     * Weight of semantic similarity
+
+                                                                     * Additional business rules (e.g., in-stock boost)
+
+
+
+9. Cloud Architecture (GCP)
+Components:
+                                                                        * Cloud Run / GKE for indexer & search API
+
+                                                                        * GCS for file storage
+
+                                                                        * Firestore or Postgres for user metadata
+
+                                                                        * FAISS stored as artifact in GCS
+
+                                                                        * VPC + Service Identity for BYOC
+
+Bring-Your-Own-Cloud Steps (User Setup)
+1. User logs in to PolarBear
+2. User selects “Connect to My GCP”
+3. PolarBear generates required IAM role JSON
+4. User pastes into GCP → enables:
+   - Storage Admin (for GCS)
+   - Run Admin (if using Cloud Run)
+   - Service Account Token Creator
+5. User pastes Service Account key into PolarBear
+6. PolarBear validates permissions
+7. User is ready to index data
+
+
+
+
+10. Data Model
+Product Schema (generic)
+id: string
+title: string
+description: string
+price: float
+tags: list<string>
+brand: string
+category: string
+image_url: string
+inventory: int
+custom_fields: dict
+
+
+Also stored:
+                                                                           * embeddings
+
+                                                                           * BM25 document
+
+                                                                           * rule configuration
+
+
+
+11. AI Assistant (Day 1 Feature)
+PolarBear ships with a built-in AI Search Assistant available from Day 1.
+Its goal: give non-technical SME users insights, explanations, and actionable suggestions.
+AI Assistant Capabilities (Launch Version)
+1. Search Health Diagnostics
+                                                                              * “Why is search for milk powder not showing good results?”
+
+                                                                              * “Why are users leaving after searching t-shirt?”
+
+                                                                              * “Which searches have low click-through rates?”
+
+2. Query Analysis & Suggestions
+                                                                                 * Identify missing synonyms
+
+                                                                                 * Detect over-fragmented categories
+
+                                                                                 * Recommend grouping / merging search terms
+
+3. Catalog Optimization
+                                                                                    * Identify products with:
+
+                                                                                       * missing descriptions
+
+                                                                                       * low-quality titles
+
+                                                                                       * missing tags
+
+                                                                                       * poor embeddings
+
+Example:
+“23 products have very short descriptions (<20 characters). Improving them will help search relevance.”
+4. Supplement / Missing Product Insights
+From zero-result searches:
+“Users searched for ‘protein shake chocolate’ 187 times last week. You don’t have this product. Consider adding it.”
+5. Setup Guidance (No-Code User Assistant)
+When onboarding a new user:
+                                                                                          * “Click here to upload a CSV.”
+
+                                                                                          * “Let me check your GCP credentials.”
+
+                                                                                          * “I’ll map your fields for you.”
+
+6. Embedded Help
+Every page has an “Ask PolarBear” button.
+Examples:
+“Explain these ranking rules.”
+“What does BM25 mean?”
+“Which embedding model should I choose?”
+Assistant Architecture
+                                                                                             * Uses a lightweight instruction-tuned model (local LLM optional)
+
+                                                                                             * Or calls OpenAI / Anthropic depending on license availability
+
+                                                                                             * Context-aware with:
+
+                                                                                                * Search analytics
+
+                                                                                                * Product schema
+
+                                                                                                * User settings
+
+                                                                                                * Query logs
+
+________________
+
+
+12. Monetization Model
+PolarBear follows a hybrid OSS + BYOC model.
+1. Open Source Core — Free
+Includes:
+                                                                                                   * BM25 engine wrapper (Meilisearch)
+
+                                                                                                   * FAISS integration
+
+                                                                                                   * Embedding generators (open-source)
+
+                                                                                                   * CSV/GoogleSheet importer
+
+                                                                                                   * Basic dashboard UI
+
+                                                                                                   * Local deployment guide
+
+                                                                                                   * Developer SDKs (JS/Python)
+
+Anyone can run PolarBear locally without paying us.
+________________
+
+
+2. Cloud SaaS (Optional, Paid)
+BYOC = Bring Your Own Cloud
+How it works
+                                                                                                      * User signs in to PolarBear
+
+                                                                                                      * User connects their own GCP account
+
+                                                                                                      * PolarBear deploys:
+
+                                                                                                         * Meilisearch container
+
+                                                                                                         * FAISS vector service
+
+                                                                                                         * Cron jobs for sync
+
+                                                                                                         * Metadata DB
+
+                                                                                                            * User pays GCP directly
+
+PolarBear revenue model
+                                                                                                               * Charge a platform fee for:
+
+                                                                                                                  * AI assistant
+
+                                                                                                                  * Managed deployment
+
+                                                                                                                  * Auto-scaling
+
+                                                                                                                  * Analytics
+
+                                                                                                                  * UI features like ranking/pinning/synonyms
+
+                                                                                                                  * Multi-store linking
+
+                                                                                                                  * Support
+
+                                                                                                                  * Updates & security patches
+
+Example pricing:
+Tier
+	Price
+	Includes
+	Free OSS
+	$0
+	Self-host
+	Starter
+	$9/mo
+	Basic deployment + AI assistant (low usage)
+	Pro
+	$29/mo
+	Analytics + cost tools + multi-embedding
+	Business
+	$99/mo
+	High volume + SLA + model tuning
+	Enterprise
+	Custom
+	Integration + SSO + custom ranking
+	User still pays GCP separately (usually $5–20/month).
+
+
+13. Analytics System
+Tracks:
+                                                                                                                     * Top search queries
+
+                                                                                                                     * Zero-search queries
+
+                                                                                                                     * Click-through rate
+
+                                                                                                                     * Conversion (if user instrumented)
+
+                                                                                                                     * Cost estimates (embedding compute, query load)
+
+________________
+
+
+14. Serving Cost Analysis Module
+Estimates:
+                                                                                                                        * Monthly compute
+
+                                                                                                                        * Indexing cost (embedding generation)
+
+                                                                                                                        * Storage cost for:
+
+                                                                                                                           * Meilisearch index
+
+                                                                                                                           * Vector DB
+
+                                                                                                                           * Original files
+
+Helps SME know:
+“Your estimated GCP cost: $6.40 / month”
+________________
+
+
+15. Supplement Suggestions
+Based on queries with:
+                                                                                                                              * High volume
+
+                                                                                                                              * Zero results
+
+PolarBear recommends:
+"Users searched for 'blue yoga pants’ 134 times last week. You don’t have this product. Consider adding it.”
+________________
+
+
+16. Security & Privacy
+                                                                                                                                 * End-to-end encrypted connection to GCP
+
+                                                                                                                                 * User keeps data in their own cloud (BYOC)
+
+                                                                                                                                 * OAuth2 for cloud provider access
+
+                                                                                                                                 * No sensitive info stored on PolarBear unless user chooses hosted-SaaS mode
+
+________________
+
+
+17. Open Source Strategy
+Open source (MIT license):
+                                                                                                                                    * Core indexing engine wrapper
+
+                                                                                                                                    * FAISS integration
+
+                                                                                                                                    * Basic dashboard
+
+                                                                                                                                    * Basic CSV upload
+
+Proprietary SaaS Add-ons:
+                                                                                                                                       * Hosted service
+
+                                                                                                                                       * GCP BYOC automation
+
+                                                                                                                                       * Analytics
+
+                                                                                                                                       * AI catalog insights
+
+________________
+
+
+18. Release Plan
+MVP (6 weeks)
+                                                                                                                                          * Dashboard basics
+
+                                                                                                                                          * CSV & Google Sheet import
+
+                                                                                                                                          * Meilisearch + FAISS hybrid search
+
+                                                                                                                                          * Embedding generation backend
+
+                                                                                                                                          * Search API + widget
+
+                                                                                                                                          * Basic analytics
+
+                                                                                                                                          * Manual ranking rules
+
+Phase 2 (2–3 months)
+                                                                                                                                             * AI insights
+
+                                                                                                                                             * GCP cost estimation
+
+                                                                                                                                             * Supplement suggestions
+
+                                                                                                                                             * Shopify connector
+
+                                                                                                                                             * Our own PolarBear search engine (BM25 + lightweight transformer ranker)
+
+Phase 3
+                                                                                                                                                * Real-time sync
+
+                                                                                                                                                * Multi-language search
+
+                                                                                                                                                * Collaborative multi-tenant model
+
+________________
+
+
+19. Future Vision
+PolarBear becomes the “Algolia for SMEs + AI”, but:
+                                                                                                                                                   * Cheaper
+
+                                                                                                                                                   * Open-source
+
+                                                                                                                                                   * More automated
+
+                                                                                                                                                   * More semantic
+
+                                                                                                                                                   * Built for non-technical users

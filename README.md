@@ -27,33 +27,6 @@ PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifi
 - [Python](https://www.python.org/) (v3.11+)
 - [Poetry](https://python-poetry.org/) (Python dependency manager)
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/dukesky/PolarBear.git
-   cd PolarBear
-   ```
-
-2. **Start Infrastructure (Meilisearch)**
-   ```bash
-   cd infrastructure
-   docker-compose up -d
-   ```
-
-3. **Setup Backend**
-   ```bash
-   cd ../backend
-   poetry install
-   poetry run uvicorn app.main:app --reload --port 8000
-   ```
-   Backend API will be available at `http://localhost:8000`.
-
-4. **Setup Frontend**
-   ```bash
-   cd ../frontend
-   npm install
-   npm run dev
    ```
    Frontend Dashboard will be available at `http://localhost:3000`.
 

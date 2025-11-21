@@ -14,7 +14,8 @@ dependencies = [
     "faiss-cpu (>=1.13.0,<2.0.0)",
     "numpy (>=2.3.5,<3.0.0)",
     "pandas (>=2.3.3,<3.0.0)",
-    "sentence-transformers (>=5.1.2,<6.0.0)"
+    "sentence-transformers (>=5.1.2,<6.0.0)",
+    "python-multipart (>=0.0.20,<0.0.21)"
 ]
 
 [tool.poetry]

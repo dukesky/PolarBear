@@ -24,7 +24,10 @@ PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifi
 ### Phase 5: UX & Product Analytics (Current)
 - **Navigation**: Global Navbar for easy access.
 - **Product Tracking**: Tracks Clicks and Orders.
-- **Conversion Metrics**: View conversion rates in Admin Dashboard.
+- **Conversion Metrics**: View conversion rates in Insights Dashboard.
+- **Smart Ingestion**: Merges new CSV uploads with existing catalog.
+- **Image Support**: Display product images from URL or uploads.
+- **Product Management**: Edit details and upload images via Insights.
 
 ## 🛠️ Tech Stack
 
@@ -69,7 +72,7 @@ PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifi
 5.  **Search & Analyze**
     - Search at `http://localhost:3000/search`.
     - Click products or "Buy" to generate data.
-    - View insights at `http://localhost:3000/admin`.
+    - View insights at `http://localhost:3000/insights`.
 
 ## 📚 Documentation
 - [Phase 1: Setup & MVP Core](docs/phase1/walkthrough_phase1.md)
@@ -77,6 +80,8 @@ PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifi
 - [Phase 3: Search Interface & Logic](docs/phase3/walkthrough_phase3.md)
 - [Phase 4: Analytics & Admin Dashboard](docs/phase4/walkthrough_phase4.md)
 - [Phase 5: UX & Product Analytics](docs/phase5/walkthrough_phase5.md)
+- [Phase 5 Mods: Rename & Ingestion Fix](docs/phase5/walkthrough_phase5_mods.md)
+- [Phase 5 Extended: Images & Management](docs/phase5/walkthrough_phase5_extended.md)
 
 ## 📁 Project Structure
 

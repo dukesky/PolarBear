@@ -15,14 +15,20 @@ class DataParser:
         else:
             raise ValueError("Unsupported file format. Please upload CSV or Excel.")
 
-        # Basic normalization
-        # 1. Fill NaNs with empty string
-        df = df.fillna("")
+        # Validate required columns
+        required_columns = {'id', 'title'}
+        if not required_columns.issubset(df.columns):
+            raise ValueError(f"Missing required columns: {required_columns - set(df.columns)}")
         
-        # 2. Ensure 'id' exists, if not, create one from index
-        if 'id' not in df.columns:
-            df['id'] = df.index.astype(str)
-        else:
-            df['id'] = df['id'].astype(str)
-
-        return df.to_dict(orient='records')
+        # Fill NaN
+        df = df.fillna('')
+        
+        # Convert to list of dicts
+        documents = df.to_dict(orient='records')
+        
+        # Ensure image_url exists
+        for doc in documents:
+            if 'image_url' not in doc:
+                doc['image_url'] = ''
+        
+        return documents

@@ -10,6 +10,7 @@ interface Product {
     category: string;
     brand: string;
     tags: string;
+    image_url?: string;
 }
 
 interface SearchResponse {
@@ -110,9 +111,20 @@ export default function SearchPage() {
                         <div
                             key={product.id}
                             onClick={() => trackEvent('click', product)}
-                            className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 cursor-pointer"
+                            className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 cursor-pointer flex gap-6"
                         >
-                            <div className="flex justify-between items-start">
+                            {/* Image */}
+                            <div className="w-32 h-32 flex-shrink-0 bg-gray-100 rounded-lg overflow-hidden">
+                                {product.image_url ? (
+                                    <img src={product.image_url} alt={product.title} className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                        <span className="text-xs">No Image</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex-1 flex justify-between items-start">
                                 <div>
                                     <h3 className="text-xl font-semibold text-gray-900 mb-2">{product.title}</h3>
                                     <p className="text-gray-600 mb-4">{product.description}</p>

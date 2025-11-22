@@ -51,7 +51,31 @@ export default function UploadPage() {
         <h1 className="block mt-1 text-lg leading-tight font-medium text-black mb-6">
           Upload Product Catalog
         </h1>
-        
+
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">Instructions</h2>
+            <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
+              <p className="font-medium mb-2">Required CSV Columns:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li><code>id</code> (Unique ID)</li>
+                <li><code>title</code> (Product Name)</li>
+                <li><code>description</code> (Product Description)</li>
+                <li><code>price</code> (Number)</li>
+                <li><code>category</code> (e.g., Apparel)</li>
+                <li><code>brand</code> (e.g., Nike)</li>
+                <li><code>tags</code> (Comma-separated, e.g., "summer, cotton")</li>
+              </ul>
+              <p className="mt-3 text-xs text-blue-600">
+                Note: Uploading a new file will <strong>merge</strong> with existing products.
+                Existing IDs will be updated, and new IDs will be added.
+              </p>
+            </div>
+          </div>
+
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-indigo-500 transition-colors"></div>
+        </div>
+
         <div className="mb-6">
           <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="file-upload">
             Select CSV or Excel File

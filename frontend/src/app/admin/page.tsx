@@ -6,6 +6,7 @@ interface AnalyticsData {
     total_searches: number;
     top_queries: { query: string; count: number }[];
     zero_results: { query: string; count: number }[];
+    product_stats: { product_id: string; title: string; clicks: number; orders: number }[];
 }
 
 export default function AdminPage() {
@@ -117,6 +118,42 @@ export default function AdminPage() {
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                {/* Product Performance */}
+                <div className="mt-10 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-6 border-b border-gray-100">
+                        <h3 className="text-lg font-semibold text-gray-900">Product Performance</h3>
+                        <p className="text-sm text-gray-500 mt-1">Clicks and Orders tracking.</p>
+                    </div>
+                    <table className="w-full text-left">
+                        <thead>
+                            <tr className="bg-gray-50 text-gray-500 text-sm">
+                                <th className="px-6 py-3 font-medium">Product</th>
+                                <th className="px-6 py-3 font-medium text-right">Clicks</th>
+                                <th className="px-6 py-3 font-medium text-right">Orders</th>
+                                <th className="px-6 py-3 font-medium text-right">Conversion Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {data.product_stats.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">No product activity yet.</td>
+                                </tr>
+                            ) : (
+                                data.product_stats.map((item) => (
+                                    <tr key={item.product_id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 text-gray-900 font-medium">{item.title}</td>
+                                        <td className="px-6 py-4 text-right text-gray-600">{item.clicks}</td>
+                                        <td className="px-6 py-4 text-right text-green-600 font-medium">{item.orders}</td>
+                                        <td className="px-6 py-4 text-right text-gray-600">
+                                            {item.clicks > 0 ? ((item.orders / item.clicks) * 100).toFixed(1) : '0.0'}%
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

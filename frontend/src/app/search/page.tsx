@@ -43,12 +43,39 @@ export default function SearchPage() {
         }
     };
 
+    const trackEvent = async (type: 'click' | 'order', product: Product) => {
+        try {
+            await fetch('http://localhost:8000/analytics/track', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type,
+                    product_id: product.id,
+                    title: product.title,
+                }),
+            });
+        } catch (error) {
+            console.error('Tracking failed:', error);
+        }
+    };
+
+    const handleBuy = async (e: React.MouseEvent, product: Product) => {
+        e.stopPropagation();
+        await trackEvent('order', product);
+        alert(`Order placed for ${product.title}!`);
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 p-8">
             <div className="max-w-4xl mx-auto">
                 <div className="text-center mb-10">
                     <h1 className="text-3xl font-bold text-gray-900 mb-4">PolarBear Search</h1>
                     <p className="text-gray-600">Hybrid Search for your Product Catalog</p>
+                    <div className="mt-4">
+                        <a href="/upload" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+                            Need to add more products? Upload CSV &rarr;
+                        </a>
+                    </div>
                 </div>
 
                 {/* Search Bar */}
@@ -80,12 +107,16 @@ export default function SearchPage() {
                     )}
 
                     {results.map((product) => (
-                        <div key={product.id} className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-100">
+                        <div
+                            key={product.id}
+                            onClick={() => trackEvent('click', product)}
+                            className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 cursor-pointer"
+                        >
                             <div className="flex justify-between items-start">
                                 <div>
                                     <h3 className="text-xl font-semibold text-gray-900 mb-2">{product.title}</h3>
                                     <p className="text-gray-600 mb-4">{product.description}</p>
-                                    <div className="flex flex-wrap gap-2">
+                                    <div className="flex flex-wrap gap-2 mb-4">
                                         <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">
                                             {product.brand}
                                         </span>
@@ -98,6 +129,12 @@ export default function SearchPage() {
                                             </span>
                                         ))}
                                     </div>
+                                    <button
+                                        onClick={(e) => handleBuy(e, product)}
+                                        className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 transition-colors"
+                                    >
+                                        Buy Now
+                                    </button>
                                 </div>
                                 <div className="text-right">
                                     <span className="text-2xl font-bold text-gray-900">${product.price}</span>

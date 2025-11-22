@@ -23,6 +23,16 @@ def init_db():
         )
     ''')
     
+    # Create product_stats table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS product_stats (
+            product_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            clicks INTEGER DEFAULT 0,
+            orders INTEGER DEFAULT 0
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -38,3 +48,24 @@ def log_search(query: str, result_count: int):
         conn.close()
     except Exception as e:
         print(f"Failed to log search: {e}")
+
+def track_product_event(event_type: str, product_id: str, title: str):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Ensure product exists
+        cursor.execute(
+            'INSERT OR IGNORE INTO product_stats (product_id, title, clicks, orders) VALUES (?, ?, 0, 0)',
+            (product_id, title)
+        )
+        
+        if event_type == 'click':
+            cursor.execute('UPDATE product_stats SET clicks = clicks + 1 WHERE product_id = ?', (product_id,))
+        elif event_type == 'order':
+            cursor.execute('UPDATE product_stats SET orders = orders + 1 WHERE product_id = ?', (product_id,))
+            
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Failed to track product event: {e}")

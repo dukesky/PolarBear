@@ -16,6 +16,11 @@ PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifi
 - **Search UI**: User-friendly search page at `/search`.
 - **API**: `GET /search` endpoint.
 
+### Phase 4: Analytics & Admin Dashboard (Current)
+- **Search Analytics**: Tracks top queries and zero-result searches.
+- **Admin Dashboard**: Visual insights at `/admin`.
+- **Backend Logging**: Asynchronous logging to SQLite.
+
 ## 🛠️ Tech Stack
 
 - **Frontend**: Next.js (React), Tailwind CSS
@@ -56,14 +61,15 @@ PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifi
     - Open `http://localhost:3000/upload`.
     - Upload a CSV file (e.g., `sample_products.csv`).
 
-5.  **Search**
-    - Open `http://localhost:3000/search`.
-    - Type a query (e.g., "warm jacket") to see hybrid results.
+5.  **Search & Analyze**
+    - Search at `http://localhost:3000/search`.
+    - View insights at `http://localhost:3000/admin`.
 
 ## 📚 Documentation
 - [Phase 1: Setup & MVP Core](docs/phase1/walkthrough_phase1.md)
 - [Phase 2: Data Ingestion & Hybrid Indexing](docs/phase2/walkthrough_phase2.md)
 - [Phase 3: Search Interface & Logic](docs/phase3/walkthrough_phase3.md)
+- [Phase 4: Analytics & Admin Dashboard](docs/phase4/walkthrough_phase4.md)
 
 ## 📁 Project Structure
 

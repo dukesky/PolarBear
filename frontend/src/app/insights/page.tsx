@@ -213,7 +213,7 @@ function ProductCatalog() {
         formData.append('file', file);
 
         try {
-            const res = await fetch(`http://localhost:8000/products/${editingProduct.id}/image`, {
+            const res = await fetch('http://localhost:8000/products/${editingProduct.id}/image', {
                 method: 'POST',
                 body: formData
             });

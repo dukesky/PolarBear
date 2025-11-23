@@ -1,6 +1,8 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+import os
 from app.core.config import settings
-from app.api.routes import ingestion, search, analytics
+from app.api.routes import ingestion, search, analytics, products
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db
 from contextlib import asynccontextmanager

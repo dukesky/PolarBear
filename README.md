@@ -1,90 +1,118 @@
-# PolarBear 🐻‍❄️
+<div align="center">
+  <img src="PolarBear_logo.png" alt="PolarBear Logo" width="200" height="200">
+  <h1>PolarBear 🐻‍❄️</h1>
+  <p><strong>The Open-Source Hybrid Search Engine for SMEs</strong></p>
+  
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+  [![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
+  [![Docker](https://img.shields.io/badge/Docker-Enabled-blue)](https://www.docker.com/)
 
-**Open-Source Hybrid Search System for SMEs**
+  <p>
+    <a href="#-features">Features</a> •
+    <a href="#-getting-started">Getting Started</a> •
+    <a href="#-documentation">Documentation</a> •
+    <a href="#-contributing">Contributing</a>
+  </p>
+</div>
 
-PolarBear is a no-code, cloud-enabled, AI-powered search engine designed specifically for small and medium-sized businesses. It allows business owners to easily create powerful search functionality for their products, menus, inventory, or service catalogs — without any technical knowledge.
+---
+
+## 🌟 Introduction
+
+**PolarBear** is a powerful, no-code, AI-enhanced search engine designed specifically for Small and Medium-sized Enterprises (SMEs). It democratizes access to advanced search technology, allowing business owners to create a professional search experience for their products, services, or inventory in minutes—completely free and open source.
+
+Unlike complex enterprise solutions, PolarBear focuses on simplicity without compromising on power. It combines **Keyword Search** (Meilisearch) and **Semantic Vector Search** (FAISS) to deliver results that are both accurate and contextually relevant.
 
 ## 🚀 Features
 
-- **Hybrid Search**: Combines keyword matching (BM25 via Meilisearch) with semantic search (Embeddings via FAISS) for superior relevance.
-- **No-Code Setup**: Upload data via CSV, Excel, or Google Sheets.
-- **Cloud-Native**: Built to run on Google Cloud Platform (Cloud Run), but fully open-source and self-hostable.
-- **AI-Powered**: Includes an AI assistant for search health diagnostics and catalog optimization.
-
-### Phase 3: Search Interface & Logic (Current)
-- **Hybrid Search**: Combines Keyword (Meilisearch) and Vector (FAISS) scores.
-- **Search UI**: User-friendly search page at `/search`.
-- **API**: `GET /search` endpoint.
-
-### Phase 4: Analytics & Admin Dashboard (Current)
-- **Search Analytics**: Tracks top queries and zero-result searches.
-- **Admin Dashboard**: Visual insights at `/admin`.
-- **Backend Logging**: Asynchronous logging to SQLite.
-
-### Phase 5: UX & Product Analytics (Current)
-- **Navigation**: Global Navbar for easy access.
-- **Product Tracking**: Tracks Clicks and Orders.
-- **Conversion Metrics**: View conversion rates in Insights Dashboard.
-- **Smart Ingestion**: Merges new CSV uploads with existing catalog.
-- **Image Support**: Display product images from URL or uploads.
-- **Product Management**: Edit details and upload images via Insights.
+- **🔍 Hybrid Search**: seamlessly blends keyword matching (BM25) with AI-powered semantic search (Embeddings) for superior result relevance.
+- **⚡ No-Code Ingestion**: Upload your data via CSV, Excel, or Google Sheets. No coding required.
+- **🧠 AI-Ready**: Built-in vectorization pipeline using state-of-the-art embedding models.
+- **📊 Insights Dashboard**: Track user behavior, top queries, zero-result searches, and conversion metrics.
+- **🛍️ Product Management**: Built-in catalog management to edit products and upload images directly.
+- **☁️ Cloud-Native**: Dockerized for easy deployment on Google Cloud Run, AWS, or your own server.
+- **🔓 Open Source**: 100% free to use, modify, and distribute.
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: Next.js (React), Tailwind CSS
-- **Backend**: Python FastAPI
-- **Search Engine**: Meilisearch (Keyword), FAISS (Vector)
-- **Infrastructure**: Docker Compose
+| Component | Technology | Description |
+|-----------|------------|-------------|
+| **Frontend** | Next.js (React) | Modern, responsive admin and search UI. |
+| **Backend** | FastAPI (Python) | High-performance API for ingestion and search. |
+| **Search** | Meilisearch | Lightning-fast keyword search engine. |
+| **Vector DB** | FAISS | Efficient similarity search for embeddings. |
+| **Infrastructure** | Docker | Containerized for consistent deployment. |
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js 18+
-- Python 3.11+
-- Docker & Docker Compose
+- **Node.js** 18+
+- **Python** 3.11+
+- **Docker** & **Docker Compose**
 
 ### Quick Start
 
-1.  **Start Infrastructure**
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/dukesky/PolarBear.git
+    cd PolarBear
+    ```
+
+2.  **Start Infrastructure**
     ```bash
     cd infrastructure
     docker-compose up -d
     ```
 
-2.  **Start Backend**
+3.  **Start Backend**
     ```bash
     cd backend
     poetry install
     poetry run uvicorn app.main:app --reload --port 8000
     ```
 
-3.  **Start Frontend**
+4.  **Start Frontend**
     ```bash
     cd frontend
     npm install
     npm run dev
     ```
 
-4.  **Ingest Data**
-    - Open `http://localhost:3000/upload`.
-    - Upload a CSV file (e.g., `sample_products.csv`).
-
-5.  **Search & Analyze**
-    - Search at `http://localhost:3000/search`.
-    - Click products or "Buy" to generate data.
-    - View insights at `http://localhost:3000/insights`.
+5.  **Experience PolarBear**
+    - **Upload Data**: Go to `http://localhost:3000/upload` and upload a CSV (e.g., `sample_products.csv`).
+    - **Search**: Visit `http://localhost:3000/search` to try the hybrid search.
+    - **Insights**: Check `http://localhost:3000/insights` for analytics and product management.
 
 ## 📚 Documentation
-- [Phase 1: Setup & MVP Core](docs/phase1/walkthrough_phase1.md)
-- [Phase 2: Data Ingestion & Hybrid Indexing](docs/phase2/walkthrough_phase2.md)
-- [Phase 3: Search Interface & Logic](docs/phase3/walkthrough_phase3.md)
-- [Phase 4: Analytics & Admin Dashboard](docs/phase4/walkthrough_phase4.md)
-- [Phase 5: UX & Product Analytics](docs/phase5/walkthrough_phase5.md)
-- [Phase 5 Mods: Rename & Ingestion Fix](docs/phase5/walkthrough_phase5_mods.md)
-- [Phase 5 Extended: Images & Management](docs/phase5/walkthrough_phase5_extended.md)
 
-## 📁 Project Structure
+Detailed walkthroughs for each development phase:
 
-- `frontend/`: Next.js Admin Dashboard
-- `backend/`: FastAPI Search & Ingestion Engine
-- `infrastructure/`: Docker configuration
+- [**Phase 1: Setup & MVP Core**](docs/phase1/walkthrough_phase1.md) - Infrastructure and basic search.
+- [**Phase 2: Ingestion & Indexing**](docs/phase2/walkthrough_phase2.md) - CSV parsing and hybrid indexing pipeline.
+- [**Phase 3: Search Interface**](docs/phase3/walkthrough_phase3.md) - Frontend UI and search logic.
+- [**Phase 4: Analytics**](docs/phase4/walkthrough_phase4.md) - Tracking user queries and dashboard.
+- [**Phase 5: UX & Product Mgmt**](docs/phase5/walkthrough_phase5_extended.md) - Image support, catalog editing, and advanced UX.
+
+## 🤝 Contributing
+
+We welcome contributions from the community! Whether it's fixing bugs, improving documentation, or suggesting new features, your help is appreciated.
+
+1.  Fork the Project
+2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the Branch (`git push origin feature/AmazingFeature`)
+5.  Open a Pull Request
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+## 📬 Contact
+
+Project Link: [https://github.com/dukesky/PolarBear](https://github.com/dukesky/PolarBear)
+
+---
+<div align="center">
+  Made with ❤️ for the Open Source Community
+</div>

@@ -1,0 +1,66 @@
+steps:
+  # 1. Build Backend Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA', './backend']
+    id: 'Build Backend'
+
+  # 2. Build Frontend Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA', './frontend']
+    id: 'Build Frontend'
+
+  # 3. Push Images to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA']
+    id: 'Push Backend'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA']
+    id: 'Push Frontend'
+
+  # 4. Deploy Backend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'polarbear-backend'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      # Set environment variables for Meilisearch connection (to be replaced by user manually or via secret manager in prod)
+      # For now, we assume the user will set these in Cloud Run console or we can pass them if we had them.
+      # We'll leave them as placeholders or rely on the VM script output.
+    id: 'Deploy Backend'
+
+  # 5. Deploy Frontend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'polarbear-frontend'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      # Pass the Backend URL to the Frontend
+      # Note: We might need to know the backend URL beforehand or update it later.
+      # For simplicity in this MVP CI/CD, we might need to hardcode or use a fixed service name URL if internal.
+      # But since they are separate services, we'll need the public URL.
+      # A common pattern is to deploy backend, get URL, then deploy frontend with that arg.
+      # However, Cloud Run URLs are deterministic based on service name + project.
+      # So we can predict it: https://polarbear-backend-<hash>-uc.a.run.app
+      # For now, we will let the user configure the NEXT_PUBLIC_API_URL env var in Cloud Run console.
+    id: 'Deploy Frontend'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA'

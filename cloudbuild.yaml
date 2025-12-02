@@ -64,3 +64,6 @@ steps:
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

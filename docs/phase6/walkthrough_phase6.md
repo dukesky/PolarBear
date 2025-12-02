@@ -47,14 +47,28 @@ Deploy the persistent Meilisearch instance:
     -   **Configuration**: Cloud Build configuration file (`cloudbuild.yaml`).
 
 ### 4. Configure Environment Variables
-After the first deployment (which might fail due to missing env vars), go to [Cloud Run Console](https://console.cloud.google.com/run):
+After the initial deployment (which triggers automatically on push), you need to configure the services.
 
-**For Backend Service (`polarbear-backend`):**
--   `MEILI_HOST`: `http://<MEILISEARCH_VM_IP>:7700`
--   `MEILI_MASTER_KEY`: `<YOUR_MASTER_KEY>`
+#### A. Configure Backend (`polarbear-backend`)
+1.  Go to the [Cloud Run Console](https://console.cloud.google.com/run).
+2.  Click on **`polarbear-backend`**.
+3.  Click **Edit & Deploy New Revision** (top center).
+4.  Select the **Container(s), Volumes, Docker, etc.** tab.
+5.  Select the **Variables & Secrets** tab.
+6.  Click **Add Variable** and add:
+    -   Name: `MEILI_HOST` | Value: `http://<YOUR_MEILISEARCH_IP>:7700`
+    -   Name: `MEILI_MASTER_KEY` | Value: `<YOUR_MASTER_KEY>`
+7.  Click **Deploy**.
 
-**For Frontend Service (`polarbear-frontend`):**
--   `NEXT_PUBLIC_API_URL`: The URL of your deployed Backend Service (e.g., `https://polarbear-backend-xyz-uc.a.run.app`).
+#### B. Configure Frontend (`polarbear-frontend`)
+1.  Find the **URL** of your backend service (from the previous step, top of the page). It looks like `https://polarbear-backend-xyz-uc.a.run.app`.
+2.  Go back to the Cloud Run dashboard and click on **`polarbear-frontend`**.
+3.  Click **Edit & Deploy New Revision**.
+4.  Select the **Container(s), Volumes, Docker, etc.** tab.
+5.  Select the **Variables & Secrets** tab.
+6.  Click **Add Variable** and add:
+    -   Name: `NEXT_PUBLIC_API_URL` | Value: `https://polarbear-backend-xyz-uc.a.run.app` (Your actual backend URL)
+7.  Click **Deploy**.
 
 ### 5. Push to Deploy
 Commit and push your changes to `main` to trigger the pipeline:

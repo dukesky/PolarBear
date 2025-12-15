@@ -11,6 +11,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED 1
+# Debug: Check if files are copied correctly
+RUN ls -la /app/public
 RUN npm run build
 
 # Stage 3: Runner

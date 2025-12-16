@@ -13,10 +13,12 @@ export default function InsightsPage() {
     const [data, setData] = useState<AnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
 
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const response = await fetch('http://localhost:8000/analytics/stats');
+                const response = await fetch(`${API_URL}/analytics/stats`);
                 const result = await response.json();
                 setData(result);
             } catch (error) {
@@ -169,8 +171,9 @@ function ProductCatalog() {
     const [loading, setLoading] = useState(true);
 
     const fetchProducts = async () => {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         try {
-            const res = await fetch('http://localhost:8000/products/');
+            const res = await fetch(`${API_URL}/products/`);
             const data = await res.json();
             setProducts(data);
         } catch (e) {
@@ -189,7 +192,8 @@ function ProductCatalog() {
         if (!editingProduct) return;
 
         try {
-            await fetch(`http://localhost:8000/products/${editingProduct.id}`, {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            await fetch(`${API_URL}/products/${editingProduct.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -213,7 +217,8 @@ function ProductCatalog() {
         formData.append('file', file);
 
         try {
-            const res = await fetch('http://localhost:8000/products/${editingProduct.id}/image', {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const res = await fetch(`${API_URL}/products/${editingProduct.id}/image`, {
                 method: 'POST',
                 body: formData
             });

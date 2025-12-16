@@ -31,6 +31,8 @@ steps:
       - 'us-central1'
       - '--platform'
       - 'managed'
+      - '--memory'
+      - '1Gi'
       - '--allow-unauthenticated'
       # Set environment variables for Meilisearch connection (to be replaced by user manually or via secret manager in prod)
       # For now, we assume the user will set these in Cloud Run console or we can pass them if we had them.

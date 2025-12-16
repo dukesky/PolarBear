@@ -21,6 +21,9 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi
 
+# Pre-download the SentenceTransformer model to cache it in the image
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 # Copy application code
 COPY . .
 

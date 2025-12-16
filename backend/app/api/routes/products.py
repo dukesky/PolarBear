@@ -6,8 +6,18 @@ import os
 import uuid
 from app.services.search.indexer import HybridIndexer
 
+
 router = APIRouter()
-indexer = HybridIndexer()
+_indexer = None
+
+def get_indexer():
+    global _indexer
+    if _indexer is None:
+        print("Initializing HybridIndexer (Lazy)...")
+        from app.services.search.indexer import HybridIndexer # Import here to avoid early dependency too if needed, but safe at top if class init does heavy lifting. 
+        # The class init does heavy lifting: self.meili_client = ...
+        _indexer = HybridIndexer()
+    return _indexer
 
 class ProductUpdate(BaseModel):
     title: Optional[str] = None
@@ -21,6 +31,7 @@ async def list_products(limit: int = 100, offset: int = 0):
     List products from Meilisearch.
     """
     try:
+        indexer = get_indexer()
         index = indexer.meili_client.index(indexer.index_name)
         results = index.get_documents({'limit': limit, 'offset': offset})
         
@@ -41,6 +52,7 @@ async def update_product(product_id: str, product: ProductUpdate):
     Update a product's details.
     """
     try:
+        indexer = get_indexer()
         # 1. Get existing product
         index = indexer.meili_client.index(indexer.index_name)
         try:

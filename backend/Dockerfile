@@ -30,9 +30,10 @@ COPY . .
 # Create static directory
 RUN mkdir -p app/static/images
 
-# Expose port
-ENV PORT=8000
-EXPOSE 8000
+# Expose port (Cloud Run uses 8080 by default)
+ENV PORT=8080
+EXPOSE 8080
 
 # Run the application
+# Use sh to expand the PORT variable safely
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

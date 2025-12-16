@@ -3,20 +3,24 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA', './backend']
     id: 'Build Backend'
+    waitFor: ['-'] # Start immediately
 
   # 2. Build Frontend Image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA', './frontend']
     id: 'Build Frontend'
+    waitFor: ['-'] # Start immediately (Parallel with Backend)
 
   # 3. Push Images to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA']
     id: 'Push Backend'
+    waitFor: ['Build Backend']
 
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA']
     id: 'Push Frontend'
+    waitFor: ['Build Frontend']
 
   # 4. Deploy Backend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -38,6 +42,7 @@ steps:
       # For now, we assume the user will set these in Cloud Run console or we can pass them if we had them.
       # We'll leave them as placeholders or rely on the VM script output.
     id: 'Deploy Backend'
+    waitFor: ['Push Backend']
 
   # 5. Deploy Frontend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -62,6 +67,7 @@ steps:
       # So we can predict it: https://polarbear-backend-<hash>-uc.a.run.app
       # For now, we will let the user configure the NEXT_PUBLIC_API_URL env var in Cloud Run console.
     id: 'Deploy Frontend'
+    waitFor: ['Push Frontend']
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA'

@@ -1,0 +1,14 @@
+{
+  "name": "polarbear-widget",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node build.mjs && git diff --exit-code ../backend/app/widget/polarbear-widget.js",
+    "test": "node build-test.mjs && node --test test/"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

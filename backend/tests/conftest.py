@@ -4,8 +4,16 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_polarbear.db"
 os.environ["SECRET_KEY"] = "test-secret"
 os.environ["INDEX_STORAGE"] = "local"
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+
+
+@pytest.fixture(autouse=True)
+def _clear_search_cache():
+    from app.services.search import cache
+    cache._cache.clear()
+    yield
 
 
 @pytest_asyncio.fixture

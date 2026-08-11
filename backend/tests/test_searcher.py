@@ -81,8 +81,9 @@ def test_search_uses_cache_after_first_load(tmp_path, monkeypatch):
 def test_search_degrades_to_keyword_only_when_storage_fails(tmp_path, monkeypatch):
     docs = {"1": {"id": "1", "title": "Shoe", "description": ""}}
 
-    from app.services.search import embedding
+    from app.services.search import embedding, cache
     monkeypatch.setattr(embedding, "_model", FakeModel())
+    assert cache.get("tenant-a") is None  # verify no stale cache entry from prior test
 
     class BrokenStorage:
         def read(self, t, n):

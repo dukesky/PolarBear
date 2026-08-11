@@ -1,0 +1,5 @@
+id,title,description,price,category,brand,tags,url
+w1,Beeswax Pillar Candle,Slow-burning natural beeswax pillar with honey scent,18,Candles,Shoppe,"natural,beeswax",https://example.com/products/beeswax-pillar
+w2,Lavender Soy Candle,Calming lavender soy wax candle for relaxing evenings,14,Candles,Shoppe,"soy,lavender,relax",https://example.com/products/lavender-soy
+w3,Citronella Outdoor Candle,Keeps mosquitoes away on warm summer nights,11,Outdoor,Shoppe,"outdoor,summer",https://example.com/products/citronella
+w4,Wooden Wick Candle,Crackling wooden wick in a glass jar,22,Candles,Shoppe,"wood,cozy",https://example.com/products/wooden-wick

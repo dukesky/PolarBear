@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ye Olde Candle Shoppe — fake merchant page</title>
+  <style>
+    /* Deliberately hostile global CSS to prove Shadow DOM isolation */
+    * { box-sizing: content-box !important; font-family: "Comic Sans MS", cursive !important; }
+    div { border: 3px dashed red; background: #fffbe6; padding: 4px; }
+    input { background: hotpink !important; border: 5px double lime !important; font-size: 30px !important; }
+    a { color: red; text-decoration: wavy underline; }
+    body { margin: 0; background: repeating-linear-gradient(45deg, #fdf6e3, #fdf6e3 20px, #f5e6c8 20px, #f5e6c8 40px); }
+    header { background: #7b3f00; color: #fff; padding: 24px; text-align: center; border: none; }
+  </style>
+</head>
+<body>
+  <header><h1>🕯️ Ye Olde Candle Shoppe</h1><p>Finest fake products since 2026</p></header>
+
+  <main style="max-width: 720px; margin: 24px auto;">
+    <p>This is a deliberately ugly third-party page. The PolarBear search box below
+       must look clean despite the hostile CSS above, and the page's own inputs
+       (like this one: <input placeholder="merchant's own ugly input">) must stay ugly.</p>
+
+    <div id="polarbear-search"></div>
+
+    <p>Lorem ipsum merchant content continues below the search box…</p>
+  </main>
+
+  <script>
+    // Key and API base come from the URL so this file needs no editing:
+    //   merchant-page.html?key=pb_search_...&api=http://localhost:8000
+    const params = new URLSearchParams(location.search);
+    const s = document.createElement('script');
+    const api = params.get('api') || 'http://localhost:8000';
+    s.src = api + '/widget.js';
+    s.dataset.key = params.get('key') || '';
+    if (params.get('api')) s.dataset.api = params.get('api');
+    s.async = true;
+    document.body.appendChild(s);
+  </script>
+</body>
+</html>

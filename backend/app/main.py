@@ -5,7 +5,7 @@ from app.core.config import settings
 from app.api.routes import ingestion, search, analytics, products, tenant
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.db import create_db_and_tables
-from app.core.users import auth_backend, fastapi_users
+from app.core.users import auth_backend, fastapi_users, google_oauth_client, oauth_redirect_backend
 from app.schemas import UserCreate, UserRead, UserUpdate
 from contextlib import asynccontextmanager
 
@@ -40,6 +40,25 @@ app.include_router(search.router, prefix="/search", tags=["Search"])
 app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 app.include_router(products.router, prefix="/products", tags=["Products"])
 app.include_router(tenant.router, prefix="/tenant", tags=["Tenant"])
+
+
+@app.get("/auth/providers", tags=["Auth"])
+def auth_providers():
+    return {"google": google_oauth_client is not None}
+
+
+if google_oauth_client is not None:
+    app.include_router(
+        fastapi_users.get_oauth_router(
+            google_oauth_client,
+            oauth_redirect_backend,
+            settings.SECRET_KEY,
+            associate_by_email=True,
+            is_verified_by_default=True,
+        ),
+        prefix="/auth/google",
+        tags=["Auth"],
+    )
 
 
 @app.get("/health")

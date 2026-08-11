@@ -49,3 +49,28 @@ auth_backend = AuthenticationBackend(
 fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
 current_active_user = fastapi_users.current_user(active=True)
 optional_current_user = fastapi_users.current_user(active=True, optional=True)
+
+from fastapi.responses import RedirectResponse
+from httpx_oauth.clients.google import GoogleOAuth2
+
+google_oauth_client = (
+    GoogleOAuth2(settings.GOOGLE_OAUTH_CLIENT_ID, settings.GOOGLE_OAUTH_CLIENT_SECRET)
+    if settings.GOOGLE_OAUTH_CLIENT_ID and settings.GOOGLE_OAUTH_CLIENT_SECRET
+    else None
+)
+
+
+class FrontendRedirectTransport(BearerTransport):
+    """After OAuth callback, hand the JWT to the frontend via URL fragment."""
+
+    async def get_login_response(self, token: str):
+        return RedirectResponse(
+            f"{settings.FRONTEND_URL}/login#token={token}", status_code=302
+        )
+
+
+oauth_redirect_backend = AuthenticationBackend(
+    name="jwt-oauth-redirect",
+    transport=FrontendRedirectTransport(tokenUrl="auth/jwt/login"),
+    get_strategy=get_jwt_strategy,
+)

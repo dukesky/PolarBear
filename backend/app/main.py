@@ -13,6 +13,8 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
+    if settings.SECRET_KEY == "dev-secret-change-me":
+        print("WARNING: SECRET_KEY is the insecure default — set the SECRET_KEY env var before exposing this deployment.")
     yield
 
 
@@ -53,7 +55,8 @@ if google_oauth_client is not None:
             google_oauth_client,
             oauth_redirect_backend,
             settings.SECRET_KEY,
-            associate_by_email=True,
+            # associate_by_email disabled: no email verification yet — prevents pre-registration account takeover
+            associate_by_email=False,
             is_verified_by_default=True,
         ),
         prefix="/auth/google",

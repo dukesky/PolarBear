@@ -1,11 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { API_URL, setToken } from '../../lib/api';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,14 +16,14 @@ export default function LoginPage() {
     const hash = window.location.hash;
     if (hash.startsWith('#token=')) {
       setToken(hash.slice(7));
-      router.replace('/');
+      window.location.href = '/';
       return;
     }
     fetch(`${API_URL}/auth/providers`)
       .then((r) => r.json())
       .then((d) => setGoogleEnabled(!!d.google))
       .catch(() => {});
-  }, [router]);
+  }, []);
 
   const doLogin = async () => {
     const body = new URLSearchParams({ username: email, password });
@@ -37,7 +35,7 @@ export default function LoginPage() {
     if (!res.ok) throw new Error('Invalid email or password.');
     const data = await res.json();
     setToken(data.access_token);
-    router.push('/');
+    window.location.href = '/';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

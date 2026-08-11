@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "node build.mjs && git diff --exit-code ../backend/app/widget/polarbear-widget.js",
-    "test": "node build-test.mjs && node --test test/"
+    "test": "node build-test.mjs && node --test test/**/*.test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",

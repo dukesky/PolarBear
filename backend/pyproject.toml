@@ -15,11 +15,26 @@ dependencies = [
     "numpy (>=2.3.5,<3.0.0)",
     "pandas (>=2.3.3,<3.0.0)",
     "sentence-transformers (>=5.1.2,<6.0.0)",
-    "python-multipart (>=0.0.20,<0.0.21)"
+    "python-multipart (>=0.0.20,<0.1.0)",
+    "fastapi-users[oauth,sqlalchemy] (>=15.0.5,<16.0.0)",
+    "sqlalchemy (>=2.0.51,<3.0.0)",
+    "aiosqlite (>=0.22.1,<0.23.0)",
+    "asyncpg (>=0.31.0,<0.32.0)",
+    "greenlet (>=3.5.5,<4.0.0)",
+    "google-cloud-storage (>=3.13.1,<4.0.0)"
 ]
 
 [tool.poetry]
 package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.1.1"
+pytest-asyncio = "^1.4.0"
+httpx = "^0.28.1"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = ["integration: requires a running Meilisearch"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

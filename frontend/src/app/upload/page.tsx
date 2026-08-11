@@ -58,15 +58,13 @@ export default function UploadPage() {
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Instructions</h2>
             <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
-              <p className="font-medium mb-2">Required CSV Columns:</p>
+              <p className="font-medium mb-2">CSV Columns:</p>
               <ul className="list-disc list-inside space-y-1">
-                <li><code>id</code> (Unique ID)</li>
-                <li><code>title</code> (Product Name)</li>
-                <li><code>description</code> (Product Description)</li>
-                <li><code>price</code> (Number)</li>
-                <li><code>category</code> (e.g., Apparel)</li>
-                <li><code>brand</code> (e.g., Nike)</li>
-                <li><code>tags</code> (Comma-separated, e.g., "summer, cotton")</li>
+                <li><code>id</code> (Required — unique ID)</li>
+                <li><code>title</code> (Required — product name)</li>
+                <li><code>description</code>, <code>price</code>, <code>category</code>, <code>brand</code>, <code>tags</code> (Recommended)</li>
+                <li><code>image_url</code> (Optional — product image shown in results)</li>
+                <li><code>url</code> (Optional — link to the product page; makes results clickable in the embedded widget)</li>
               </ul>
               <p className="mt-3 text-xs text-blue-600">
                 Note: Uploading a new file will <strong>merge</strong> with existing products.

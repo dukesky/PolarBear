@@ -99,6 +99,114 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        <EmbedSection />
+      </div>
+    </div>
+  );
+}
+
+const PLATFORMS = [
+  {
+    id: 'shopify',
+    label: 'Shopify',
+    steps: [
+      'In your Shopify admin, go to Online Store → Themes → Customize.',
+      'On the page where you want search, click Add section → Custom Liquid.',
+      'Paste the code below into the Custom Liquid box and click Save.',
+    ],
+  },
+  {
+    id: 'wordpress',
+    label: 'WordPress',
+    steps: [
+      'In WP Admin, go to Appearance → Widgets, or edit the page in the block editor.',
+      'Add a "Custom HTML" block where you want the search box.',
+      'Paste the code below into the block and click Update.',
+    ],
+  },
+  {
+    id: 'wix',
+    label: 'Wix',
+    steps: [
+      'In your Wix dashboard, go to Settings → Custom Code.',
+      'Click "+ Add Custom Code" and paste the code below.',
+      'Choose the pages it loads on, place it in Body, and click Apply.',
+    ],
+  },
+  {
+    id: 'other',
+    label: 'Other website',
+    steps: [
+      'Open the HTML of the page where you want the search box.',
+      'Paste the code below where the box should appear.',
+      'Save and reload your site.',
+    ],
+  },
+];
+
+function EmbedSection() {
+  const [snippet, setSnippet] = useState('');
+  const [platform, setPlatform] = useState('shopify');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    authFetch('/tenant/snippet')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setSnippet(d.snippet))
+      .catch(() => {});
+  }, []);
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(snippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const active = PLATFORMS.find((p) => p.id === platform) ?? PLATFORMS[0];
+
+  return (
+    <div className="mt-6 p-4 border border-gray-200 rounded-lg">
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Add search to your website</h2>
+      <p className="text-xs text-gray-500 mb-3">
+        Three steps: 1) upload your products, 2) copy the code, 3) paste it into your site.
+        No coding needed — every platform below has a paste box in its settings.
+      </p>
+
+      <div className="flex gap-2 mb-3">
+        {PLATFORMS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPlatform(p.id)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border ${
+              platform === p.id
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <ol className="list-decimal list-inside space-y-1 text-xs text-gray-700 mb-3">
+        {active.steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
+
+      <div className="flex items-start gap-2">
+        <pre className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-3 py-2 overflow-x-auto whitespace-pre">
+          {snippet || 'Loading your embed code…'}
+        </pre>
+        {snippet && (
+          <button
+            onClick={copy}
+            className="text-xs font-medium px-3 py-2 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        )}
       </div>
     </div>
   );

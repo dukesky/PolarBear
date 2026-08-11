@@ -32,6 +32,7 @@ Unlike complex enterprise solutions, PolarBear focuses on simplicity without com
 - **📊 Insights Dashboard**: Track user behavior, top queries, zero-result searches, and conversion metrics.
 - **🛍️ Product Management**: Built-in catalog management to edit products and upload images directly.
 - **🔐 Multi-Tenant**: Register an account, get isolated indexes and API keys — one deployment serves many businesses.
+- **🧩 Embeddable Widget**: paste two lines into any website (Shopify, WordPress, Wix, custom) and get an AI search box for your catalog.
 - **☁️ Cloud-Native**: Dockerized for easy deployment on Google Cloud Run, AWS, or your own server.
 - **🔓 Open Source**: 100% free to use, modify, and distribute.
 
@@ -85,6 +86,7 @@ Unlike complex enterprise solutions, PolarBear focuses on simplicity without com
     - **Upload Data**: Go to `http://localhost:3000/upload` and upload a CSV (e.g., `sample_products.csv`).
     - **Search**: Visit `http://localhost:3000/search` to try the hybrid search.
     - **API Keys**: Visit `http://localhost:3000/settings` to copy your public search key.
+    - **Embed**: In Settings → "Add search to your website", copy the snippet into any web page — the widget talks to your backend.
     - **Insights**: Check `http://localhost:3000/insights` for analytics and product management.
 
 > **Upgrading from a pre-multi-tenant version?** Indexes are now per-account. After

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import os
 from app.core.config import settings
-from app.api.routes import ingestion, search, analytics, products
+from app.api.routes import ingestion, search, analytics, products, tenant
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.db import create_db_and_tables
 from app.core.users import auth_backend, fastapi_users
@@ -40,6 +40,7 @@ app.include_router(ingestion.router, prefix="/ingest", tags=["Ingestion"])
 app.include_router(search.router, prefix="/search", tags=["Search"])
 app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 app.include_router(products.router, prefix="/products", tags=["Products"])
+app.include_router(tenant.router, prefix="/tenant", tags=["Tenant"])
 
 
 @app.get("/health")

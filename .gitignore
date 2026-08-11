@@ -48,3 +48,10 @@ htmlcov/
 
 # Meilisearch
 meili_data/
+
+# Runtime state — never commit
+*.bin
+*.pkl
+*.db
+backend/data/
+data/

@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +15,8 @@ router = APIRouter()
 
 class TrackEvent(BaseModel):
     type: str  # 'click' | 'order'
-    product_id: str
-    title: str
+    product_id: str = Field(max_length=255)
+    title: str = Field(max_length=500)
 
 
 @router.post("/track")

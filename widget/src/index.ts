@@ -19,6 +19,10 @@ import { mountSearchBox } from './search-box';
       console.warn(`[PolarBear] container "${selector}" not found — widget not mounted`);
       return;
     }
+    if (container.shadowRoot) {
+      console.warn('[PolarBear] widget already mounted');
+      return;
+    }
     const shadow = container.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = css;

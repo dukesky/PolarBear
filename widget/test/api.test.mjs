@@ -48,3 +48,13 @@ test('track never throws even when fetch is broken', () => {
   );
   client.track({ id: 1, title: 'X' }); // must not throw
 });
+
+test('safeUrl only allows http(s)', async () => {
+  const { safeUrl } = await import('./.api.build.mjs');
+  assert.equal(safeUrl('https://ok.com/x'), 'https://ok.com/x');
+  assert.equal(safeUrl('http://ok.com/x'), 'http://ok.com/x');
+  assert.equal(safeUrl('javascript:alert(1)'), undefined);
+  assert.equal(safeUrl('data:text/html,x'), undefined);
+  assert.equal(safeUrl(undefined), undefined);
+  assert.equal(safeUrl('/relative/path'), '/relative/path');
+});

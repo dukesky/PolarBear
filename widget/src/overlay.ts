@@ -1,4 +1,4 @@
-import { createSearchClient, debounce, Product } from './api';
+import { createSearchClient, debounce, Product, safeUrl } from './api';
 import type { WidgetConfig } from './search-box';
 
 export function openOverlay(shadow: ShadowRoot, cfg: WidgetConfig, initial: string): void {
@@ -37,22 +37,24 @@ export function openOverlay(shadow: ShadowRoot, cfg: WidgetConfig, initial: stri
       if (q.trim().length >= 2) {
         const empty = document.createElement('div');
         empty.className = 'pb-empty';
-        empty.textContent = `No results for "${q}"`;
+        empty.textContent = `No results for “${q}”`;
         results.appendChild(empty);
       }
       return;
     }
     items.forEach((p, i) => {
-      const card = document.createElement(p.url ? 'a' : 'div');
+      const link = safeUrl(p.url);
+      const card = document.createElement(link ? 'a' : 'div');
       card.className = 'pb-card' + (i === selected ? ' pb-selected' : '');
-      if (p.url && card instanceof HTMLAnchorElement) {
-        card.href = p.url;
+      if (link && card instanceof HTMLAnchorElement) {
+        card.href = link;
         card.target = '_top';
       }
-      if (p.image_url) {
+      const image = safeUrl(p.image_url);
+      if (image) {
         const img = document.createElement('img');
         img.className = 'pb-thumb';
-        img.src = p.image_url;
+        img.src = image;
         img.alt = '';
         card.appendChild(img);
       } else {
@@ -119,7 +121,10 @@ export function openOverlay(shadow: ShadowRoot, cfg: WidgetConfig, initial: stri
       const p = items[selected];
       if (p) {
         client.track(p);
-        if (p.url) window.top?.location.assign(p.url);
+        const dest = safeUrl(p.url);
+        if (dest) {
+          try { window.top!.location.href = dest; } catch { window.location.href = dest; }
+        }
       }
     }
   });

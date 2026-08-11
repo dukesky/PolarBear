@@ -54,6 +54,17 @@ export function createSearchClient(cfg: WidgetConfig, fetchFn: typeof fetch = fe
   };
 }
 
+/** Returns the url only when it parses to http(s); undefined otherwise. */
+export function safeUrl(u: string | undefined): string | undefined {
+  if (!u) return undefined;
+  try {
+    const base = typeof window !== 'undefined' ? window.location.href : 'http://localhost/';
+    const parsed = new URL(u, base);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return u;
+  } catch { /* unparseable */ }
+  return undefined;
+}
+
 export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
   let t: ReturnType<typeof setTimeout> | undefined;
   return (...args: A) => {

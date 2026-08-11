@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import os
 from app.core.config import settings
@@ -33,6 +34,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Widget file path
+WIDGET_FILE = os.path.join(os.path.dirname(__file__), "widget", "polarbear-widget.js")
+
+
+@app.get("/widget.js", include_in_schema=False)
+def widget_js():
+    if not os.path.exists(WIDGET_FILE):
+        raise HTTPException(status_code=404, detail="Widget artifact missing")
+    return FileResponse(
+        WIDGET_FILE,
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
 
 app.include_router(fastapi_users.get_auth_router(auth_backend), prefix="/auth/jwt", tags=["Auth"])
 app.include_router(fastapi_users.get_register_router(UserRead, UserCreate), prefix="/auth", tags=["Auth"])

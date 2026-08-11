@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { authFetch, useRequireAuth } from '../../lib/api';
 
 interface Product {
     id: string;
@@ -20,12 +21,11 @@ interface SearchResponse {
 }
 
 export default function SearchPage() {
+    useRequireAuth();
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<Product[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
-
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -35,7 +35,7 @@ export default function SearchPage() {
         setHasSearched(true);
 
         try {
-            const response = await fetch(`${API_URL}/search?q=${encodeURIComponent(query)}`);
+            const response = await authFetch(`/search/?q=${encodeURIComponent(query)}`);
             const data: SearchResponse = await response.json();
             setResults(data.results || []);
         } catch (error) {
@@ -48,7 +48,7 @@ export default function SearchPage() {
 
     const trackEvent = async (type: 'click' | 'order', product: Product) => {
         try {
-            await fetch(`${API_URL}/analytics/track`, {
+            await authFetch('/analytics/track', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

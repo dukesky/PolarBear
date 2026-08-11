@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import { authFetch, useRequireAuth } from '../../lib/api';
 
 export default function UploadPage() {
+  useRequireAuth();
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -24,7 +25,7 @@ export default function UploadPage() {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`${API_URL}/ingest/upload`, {
+      const response = await authFetch('/ingest/upload', {
         method: 'POST',
         body: formData,
       });

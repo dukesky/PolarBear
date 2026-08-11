@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { authFetch, useRequireAuth } from '../../lib/api';
 
 interface AnalyticsData {
     total_searches: number;
@@ -10,15 +11,14 @@ interface AnalyticsData {
 }
 
 export default function InsightsPage() {
+    useRequireAuth();
     const [data, setData] = useState<AnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
-
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const response = await fetch(`${API_URL}/analytics/stats`);
+                const response = await authFetch('/analytics/stats');
                 const result = await response.json();
                 setData(result);
             } catch (error) {
@@ -171,9 +171,8 @@ function ProductCatalog() {
     const [loading, setLoading] = useState(true);
 
     const fetchProducts = async () => {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         try {
-            const res = await fetch(`${API_URL}/products/`);
+            const res = await authFetch('/products/');
             const data = await res.json();
             setProducts(data);
         } catch (e) {
@@ -192,8 +191,7 @@ function ProductCatalog() {
         if (!editingProduct) return;
 
         try {
-            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            await fetch(`${API_URL}/products/${editingProduct.id}`, {
+            await authFetch(`/products/${editingProduct.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -217,8 +215,7 @@ function ProductCatalog() {
         formData.append('file', file);
 
         try {
-            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            const res = await fetch(`${API_URL}/products/${editingProduct.id}/image`, {
+            const res = await authFetch(`/products/${editingProduct.id}/image`, {
                 method: 'POST',
                 body: formData
             });

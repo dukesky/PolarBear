@@ -1,5 +1,6 @@
 import pickle
 import numpy as np
+import pytest
 
 
 class FakeModel:
@@ -77,3 +78,40 @@ def test_indexer_invalidates_cache(tmp_path, monkeypatch):
     idx = HybridIndexer("tenant-a", storage=LocalStorage(str(tmp_path)), meili_client=FakeMeiliClient())
     idx.index_data([{"id": "1", "title": "X", "description": ""}])
     assert cache.get("tenant-a") is None
+
+
+class FakeMeiliIndexWithError:
+    """Fake Meilisearch index that raises an error on get_documents."""
+    def __init__(self):
+        self.settings = None
+
+    def get_documents(self, params):
+        raise RuntimeError("connection refused")
+
+    def update_settings(self, s):
+        self.settings = s
+
+    def add_documents(self, docs):
+        pass
+
+
+class FakeMeiliClientWithError:
+    """Fake Meilisearch client that returns an index that raises on get_documents."""
+    def index(self, name):
+        return FakeMeiliIndexWithError()
+
+
+def test_indexer_propagates_non_index_not_found_errors(tmp_path, monkeypatch):
+    """Verify that real errors (e.g., connection refused) are propagated, not silently ignored."""
+    from app.services.search import embedding
+    monkeypatch.setattr(embedding, "_model", FakeModel())
+
+    from app.services.search.indexer import HybridIndexer
+    from app.services.storage import LocalStorage
+
+    meili = FakeMeiliClientWithError()
+    idx = HybridIndexer("tenant-a", storage=LocalStorage(str(tmp_path)), meili_client=meili)
+
+    # Attempting to index should raise the RuntimeError, not silently proceed
+    with pytest.raises(RuntimeError, match="connection refused"):
+        idx.index_data([{"id": "1", "title": "X", "description": ""}])

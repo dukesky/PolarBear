@@ -2,6 +2,7 @@ import pickle
 
 import faiss
 import meilisearch
+import meilisearch.errors
 import numpy as np
 
 from app.core.config import settings
@@ -28,7 +29,10 @@ class HybridIndexer:
         try:
             results = self.meili_client.index(self.index_name).get_documents({"limit": 10000})
             existing_docs = [dict(d) for d in results.results]
-        except Exception:
+        except meilisearch.errors.MeilisearchApiError as e:
+            # Only treat "index_not_found" as an empty index; re-raise other errors
+            if getattr(e, "code", None) != "index_not_found":
+                raise
             existing_docs = []  # empty/new index
 
         merged = {str(d["id"]): d for d in existing_docs}

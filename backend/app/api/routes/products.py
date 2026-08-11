@@ -1,23 +1,16 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from pydantic import BaseModel
+import uuid as uuid_mod
 from typing import Optional
-import shutil
-import os
-import uuid
-from app.services.search.indexer import HybridIndexer
 
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
+
+from app.core.tenancy import resolve_admin_tenant
+from app.models import Tenant
+from app.services.search.indexer import HybridIndexer
+from app.services.storage import get_storage
 
 router = APIRouter()
-_indexer = None
 
-def get_indexer():
-    global _indexer
-    if _indexer is None:
-        print("Initializing HybridIndexer (Lazy)...")
-        from app.services.search.indexer import HybridIndexer # Import here to avoid early dependency too if needed, but safe at top if class init does heavy lifting. 
-        # The class init does heavy lifting: self.meili_client = ...
-        _indexer = HybridIndexer()
-    return _indexer
 
 class ProductUpdate(BaseModel):
     title: Optional[str] = None
@@ -25,86 +18,54 @@ class ProductUpdate(BaseModel):
     price: Optional[float] = None
     image_url: Optional[str] = None
 
+
+def _index_for(tenant: Tenant):
+    indexer = HybridIndexer(str(tenant.id))
+    return indexer.meili_client.index(indexer.index_name)
+
+
 @router.get("/")
-async def list_products(limit: int = 100, offset: int = 0):
-    """
-    List products from Meilisearch.
-    """
+async def list_products(
+    limit: int = 100, offset: int = 0, tenant: Tenant = Depends(resolve_admin_tenant)
+):
     try:
-        indexer = get_indexer()
-        index = indexer.meili_client.index(indexer.index_name)
-        results = index.get_documents({'limit': limit, 'offset': offset})
-        
-        # Handle Meilisearch v0.20+ response object
-        documents = []
-        if hasattr(results, 'results'):
-            documents = [dict(d) for d in results.results]
-        else:
-            documents = results
-            
-        return documents
+        results = _index_for(tenant).get_documents({"limit": limit, "offset": offset})
+        return [dict(d) for d in results.results]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.put("/{product_id}")
-async def update_product(product_id: str, product: ProductUpdate):
-    """
-    Update a product's details.
-    """
+async def update_product(
+    product_id: str, product: ProductUpdate, tenant: Tenant = Depends(resolve_admin_tenant)
+):
+    index = _index_for(tenant)
     try:
-        indexer = get_indexer()
-        # 1. Get existing product
-        index = indexer.meili_client.index(indexer.index_name)
-        try:
-            existing_doc = index.get_document(product_id)
-        except:
-            raise HTTPException(status_code=404, detail="Product not found")
-            
-        # 2. Update fields
-        doc = dict(existing_doc)
-        if product.title is not None: doc['title'] = product.title
-        if product.description is not None: doc['description'] = product.description
-        if product.price is not None: doc['price'] = product.price
-        if product.image_url is not None: doc['image_url'] = product.image_url
-        
-        # 3. Re-index (Single item update)
-        # Note: For full consistency, we should ideally re-embed and update FAISS too.
-        # For MVP, we'll just update Meilisearch and assume embeddings don't change drastically 
-        # or we rely on the periodic "Merge & Rebuild" for vector updates.
-        # However, to keep it simple and working, we will just update Meilisearch for now.
-        index.add_documents([doc])
-        
-        return {"status": "success", "product": doc}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        existing = dict(index.get_document(product_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    for field in ("title", "description", "price", "image_url"):
+        value = getattr(product, field)
+        if value is not None:
+            existing[field] = value
+    index.add_documents([existing])
+    return {"status": "success", "product": existing}
+
 
 @router.post("/{product_id}/image")
-async def upload_product_image(product_id: str, file: UploadFile = File(...)):
-    """
-    Upload an image for a product.
-    """
-    try:
-        # 1. Validate file
-        if not file.content_type.startswith('image/'):
-            raise HTTPException(status_code=400, detail="File must be an image")
-            
-        # 2. Save file
-        ext = file.filename.split('.')[-1]
-        filename = f"{product_id}_{uuid.uuid4().hex[:8]}.{ext}"
-        file_path = f"app/static/images/{filename}"
-        
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # 3. Update Product URL
-        image_url = f"http://localhost:8000/static/images/{filename}"
-        
-        # Update via the update endpoint logic
-        update_data = ProductUpdate(image_url=image_url)
-        await update_product(product_id, update_data)
-        
-        return {"status": "success", "image_url": image_url}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def upload_product_image(
+    product_id: str,
+    file: UploadFile = File(...),
+    tenant: Tenant = Depends(resolve_admin_tenant),
+):
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    ext = file.filename.split(".")[-1] if "." in file.filename else "png"
+    name = f"images/{product_id}_{uuid_mod.uuid4().hex[:8]}.{ext}"
+    data = await file.read()
+    image_url = get_storage().write_public(str(tenant.id), name, data, file.content_type)
+
+    await update_product(product_id, ProductUpdate(image_url=image_url), tenant)
+    return {"status": "success", "image_url": image_url}

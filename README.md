@@ -31,6 +31,7 @@ Unlike complex enterprise solutions, PolarBear focuses on simplicity without com
 - **🧠 AI-Ready**: Built-in vectorization pipeline using state-of-the-art embedding models.
 - **📊 Insights Dashboard**: Track user behavior, top queries, zero-result searches, and conversion metrics.
 - **🛍️ Product Management**: Built-in catalog management to edit products and upload images directly.
+- **🔐 Multi-Tenant**: Register an account, get isolated indexes and API keys — one deployment serves many businesses.
 - **☁️ Cloud-Native**: Dockerized for easy deployment on Google Cloud Run, AWS, or your own server.
 - **🔓 Open Source**: 100% free to use, modify, and distribute.
 
@@ -80,9 +81,15 @@ Unlike complex enterprise solutions, PolarBear focuses on simplicity without com
     ```
 
 5.  **Experience PolarBear**
+    - **Register**: Go to `http://localhost:3000/login` and create an account.
     - **Upload Data**: Go to `http://localhost:3000/upload` and upload a CSV (e.g., `sample_products.csv`).
     - **Search**: Visit `http://localhost:3000/search` to try the hybrid search.
+    - **API Keys**: Visit `http://localhost:3000/settings` to copy your public search key.
     - **Insights**: Check `http://localhost:3000/insights` for analytics and product management.
+
+> **Upgrading from a pre-multi-tenant version?** Indexes are now per-account. After
+> upgrading, register an account and re-upload your CSV — old data in the shared
+> `products` index is not migrated automatically.
 
 ## 📚 Documentation
 

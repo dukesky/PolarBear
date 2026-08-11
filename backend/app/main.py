@@ -18,11 +18,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PolarBear API", version="0.2.0", lifespan=lifespan)
 
-# Create static directory if not exists
-os.makedirs("app/static/images", exist_ok=True)
-
 # Mount Static Files
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+public_dir = os.path.join(settings.DATA_DIR, "public")
+os.makedirs(public_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=public_dir), name="static")
 
 # CORS
 app.add_middleware(

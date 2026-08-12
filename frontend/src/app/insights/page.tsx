@@ -157,10 +157,10 @@ export default function InsightsPage() {
                         </tbody>
                     </table>
                 </div>
-            </div>
 
-            {/* Product Catalog Section */}
-            <ProductCatalog />
+                {/* Product Catalog Section */}
+                <ProductCatalog />
+            </div>
         </div>
     );
 }

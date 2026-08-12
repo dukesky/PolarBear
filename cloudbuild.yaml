@@ -6,8 +6,9 @@ steps:
     waitFor: ['-'] # Start immediately
 
   # 2. Build Frontend Image
+  # NEXT_PUBLIC_* vars are inlined at build time — the backend URL must be a build arg.
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA', './frontend']
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA', '--build-arg', 'NEXT_PUBLIC_API_URL=${_BACKEND_URL}', './frontend']
     id: 'Build Frontend'
     waitFor: ['-'] # Start immediately (Parallel with Backend)
 
@@ -72,6 +73,10 @@ steps:
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/frontend:$COMMIT_SHA'
+
+substitutions:
+  # Cloud Run URLs are deterministic per service+project; override if yours differs.
+  _BACKEND_URL: 'https://polarbear-backend-399780699896.us-central1.run.app'
 
 options:
   logging: CLOUD_LOGGING_ONLY

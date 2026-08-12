@@ -9,6 +9,10 @@ class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-me")
     INDEX_STORAGE: str = os.getenv("INDEX_STORAGE", "local")  # "local" | "gcs"
     GCS_BUCKET: str = os.getenv("GCS_BUCKET", "")
+    # Public bucket for merchant images (world-readable). Keep separate from
+    # GCS_BUCKET, which holds private per-tenant indexes. Falls back to
+    # GCS_BUCKET when unset.
+    GCS_PUBLIC_BUCKET: str = os.getenv("GCS_PUBLIC_BUCKET", "")
     DATA_DIR: str = os.getenv("DATA_DIR", "./data")
     PUBLIC_BACKEND_URL: str = os.getenv("PUBLIC_BACKEND_URL", "http://localhost:8000")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")

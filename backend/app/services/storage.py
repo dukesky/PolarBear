@@ -33,10 +33,17 @@ class LocalStorage:
 
 
 class GCSStorage:
-    def __init__(self, bucket_name: str | None = None):
+    """Indexes live in a private bucket; merchant images go to a separate
+    world-readable bucket so the private bucket never needs public access."""
+
+    def __init__(self, bucket_name: str | None = None, public_bucket_name: str | None = None):
         from google.cloud import storage as gcs
 
-        self.bucket = gcs.Client().bucket(bucket_name or settings.GCS_BUCKET)
+        client = gcs.Client()
+        self.bucket = client.bucket(bucket_name or settings.GCS_BUCKET)
+        self.public_bucket = client.bucket(
+            public_bucket_name or settings.GCS_PUBLIC_BUCKET or settings.GCS_BUCKET
+        )
 
     def _blob(self, tenant_id: str, name: str):
         return self.bucket.blob(f"tenants/{tenant_id}/{name}")
@@ -49,7 +56,7 @@ class GCSStorage:
         self._blob(tenant_id, name).upload_from_string(data)
 
     def write_public(self, tenant_id: str, name: str, data: bytes, content_type: str) -> str:
-        blob = self._blob(tenant_id, name)
+        blob = self.public_bucket.blob(f"tenants/{tenant_id}/{name}")
         blob.upload_from_string(data, content_type=content_type)
         return blob.public_url
 

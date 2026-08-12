@@ -24,6 +24,25 @@
 
 Unlike complex enterprise solutions, PolarBear focuses on simplicity without compromising on power. It combines **Keyword Search** (Meilisearch) and **Semantic Vector Search** (FAISS) to deliver results that are both accurate and contextually relevant.
 
+PolarBear is **open-core**: this repository is the complete product under the MIT license — clone it, self-host it, study it, extend it. The same codebase can also run as a hosted multi-tenant service where store owners simply register, upload their catalog, and paste two lines of code into their website.
+
+## 🛍️ Add Search to Your Store — in 3 Steps
+
+> **Store owner with no technical background?** This is for you.
+
+1. **Upload your products** — a CSV with your product names, descriptions, and prices.
+2. **Copy your embed code** — the Settings page generates it, with platform-specific guides for Shopify, WordPress, and Wix.
+3. **Paste it into your site** — into your site builder's "custom code" box. Done.
+
+```html
+<div id="polarbear-search"></div>
+<script src="https://your-polarbear-server/widget.js" data-key="pb_search_..." async></script>
+```
+
+Your shoppers get a search-as-you-type overlay with AI semantic matching ("cozy gift" finds your scented candles); you get a dashboard of what they searched and clicked.
+
+📖 **[Full integration guide → docs/INTEGRATION.md](docs/INTEGRATION.md)** — step-by-step per platform, CSV format, widget options, API reference, self-hosting, and troubleshooting.
+
 ## 🚀 Features
 
 - **🔍 Hybrid Search**: seamlessly blends keyword matching (BM25) with AI-powered semantic search (Embeddings) for superior result relevance.
@@ -95,7 +114,11 @@ Unlike complex enterprise solutions, PolarBear focuses on simplicity without com
 
 ## 📚 Documentation
 
-Detailed walkthroughs for each development phase:
+**For store owners & integrators:**
+
+- [**Integration Guide**](docs/INTEGRATION.md) — add PolarBear search to any website (Shopify, WordPress, Wix, custom) in 3 steps; CSV format, widget options, search API, self-hosting, troubleshooting.
+
+**Development history** — detailed walkthroughs for each phase:
 
 - [**Phase 1: Setup & MVP Core**](docs/phase1/walkthrough_phase1.md) - Infrastructure and basic search.
 - [**Phase 2: Ingestion & Indexing**](docs/phase2/walkthrough_phase2.md) - CSV parsing and hybrid indexing pipeline.

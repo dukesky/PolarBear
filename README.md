@@ -43,6 +43,18 @@ Your shoppers get a search-as-you-type overlay with AI semantic matching ("cozy 
 
 📖 **[Full integration guide → docs/INTEGRATION.md](docs/INTEGRATION.md)** — step-by-step per platform, CSV format, widget options, API reference, self-hosting, and troubleshooting.
 
+### See it working in 2 minutes
+
+The repo ships a demo storefront — a small hardware store with 18 products — so you can experience both sides without writing anything:
+
+```bash
+cd demo-store && python3 -m http.server 4173
+```
+
+Upload `demo-store/products.csv` to your PolarBear account, paste your search key into the page, then search **“my faucet drips”**. You get the faucet washer assortment — a product whose title shares no word with your query. That's the difference between keyword search and PolarBear.
+
+📦 **[Demo storefront → demo-store/](demo-store/)**
+
 ## 🚀 Features
 
 - **🔍 Hybrid Search**: seamlessly blends keyword matching (BM25) with AI-powered semantic search (Embeddings) for superior result relevance.

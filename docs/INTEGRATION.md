@@ -22,6 +22,11 @@ Everything below is detail on those three steps.
 
 ---
 
+> **Want to try it before committing your own catalog?** The repo includes a
+> ready-made demo storefront with 18 products — see [demo-store/](../demo-store/).
+> Run `python3 -m http.server 4173` in that folder, upload its `products.csv`,
+> and you can play both merchant and shopper in a couple of minutes.
+
 ## Step 0 — Get an account
 
 - **Hosted**: register at your PolarBear provider's URL — you get an isolated

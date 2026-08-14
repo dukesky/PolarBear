@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Corner Hardware — Neighborhood Supply Since 1998</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #17191A;
+    --concrete: #E6E3DC;
+    --concrete-deep: #D8D4CB;
+    --zinc: #8A8B87;
+    --signal: #1F4E8C;
+    --caution: #F2B705;
+    --paper: #FBFAF7;
+
+    --display: "IBM Plex Sans Condensed", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--body);
+    color: var(--ink);
+    background-color: var(--concrete);
+    /* Pegboard: the wall every hardware store hangs its stock on */
+    background-image: radial-gradient(circle, rgba(23,25,26,.14) 1.6px, transparent 1.7px);
+    background-size: 26px 26px;
+    background-position: 13px 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- Aisle sign bar ---------- */
+  .signbar {
+    background: var(--ink);
+    color: var(--paper);
+    border-bottom: 4px solid var(--caution);
+  }
+  .signbar__inner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; min-height: 56px; flex-wrap: wrap;
+  }
+  .signbar__name {
+    font-family: var(--display);
+    font-weight: 700; font-size: 20px; letter-spacing: .14em; text-transform: uppercase;
+  }
+  .signbar__meta {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .18em;
+    text-transform: uppercase; color: #A9AAA6;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 4px 10px; border: 1px solid #3A3D3E; border-radius: 2px;
+  }
+  .pill::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--zinc);
+  }
+  .pill--live { color: var(--caution); border-color: #5A4B12; }
+  .pill--live::before { background: var(--caution); }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: 72px 0 56px; }
+  .hero__eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--signal); margin-bottom: 18px;
+  }
+  .hero__title {
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(40px, 7vw, 76px); line-height: .95; letter-spacing: -.01em;
+    text-transform: uppercase; max-width: 15ch;
+  }
+  .hero__lede {
+    margin-top: 20px; max-width: 52ch; font-size: 17px; line-height: 1.55; color: #43474A;
+  }
+
+  /* ---------- The counter (signature element) ---------- */
+  .counter {
+    margin-top: 40px;
+    background: var(--paper);
+    border: 1px solid var(--concrete-deep);
+    border-top: 6px solid var(--caution);
+    box-shadow: 0 18px 40px -28px rgba(23,25,26,.55);
+    animation: settle .5s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes settle { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  .counter__head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding: 18px 24px 0; flex-wrap: wrap;
+  }
+  .counter__label {
+    font-family: var(--display); font-weight: 700; font-size: 19px;
+    letter-spacing: .16em; text-transform: uppercase;
+  }
+  .counter__note { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; color: var(--zinc); }
+  .counter__body { padding: 16px 24px 24px; }
+
+  /* Where the PolarBear widget mounts */
+  #polarbear-search { margin-top: 4px; }
+
+  .asks { margin-top: 18px; }
+  .asks__label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--zinc); margin-bottom: 10px;
+  }
+  .asks__row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ask {
+    font-family: var(--body); font-size: 14px; color: var(--ink);
+    background: var(--concrete); border: 1px solid var(--concrete-deep);
+    border-radius: 999px; padding: 7px 14px; cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .ask:hover { background: var(--signal); border-color: var(--signal); color: var(--paper); }
+  .ask:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  /* ---------- Setup state (no key yet) ---------- */
+  .setup__title { font-family: var(--display); font-size: 20px; letter-spacing: .04em; text-transform: uppercase; }
+  .setup__steps { margin: 14px 0 18px; padding-left: 20px; font-size: 15px; line-height: 1.75; color: #43474A; }
+  .setup__steps a { color: var(--signal); }
+  .setup__form { display: flex; gap: 10px; flex-wrap: wrap; }
+  .setup__input {
+    flex: 1 1 320px; font-family: var(--mono); font-size: 13px;
+    padding: 11px 13px; border: 1px solid var(--concrete-deep); background: #fff; color: var(--ink);
+  }
+  .setup__input:focus { outline: 2px solid var(--signal); outline-offset: -1px; }
+  .btn {
+    font-family: var(--display); font-weight: 700; font-size: 14px;
+    letter-spacing: .12em; text-transform: uppercase;
+    background: var(--ink); color: var(--paper); border: none;
+    padding: 12px 22px; cursor: pointer;
+  }
+  .btn:hover { background: var(--signal); }
+  .btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  /* ---------- Aisle divider ---------- */
+  .aisle {
+    display: flex; align-items: center; gap: 18px; margin: 64px 0 26px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--zinc);
+  }
+  .aisle::after { content: ""; flex: 1; height: 1px; background: var(--concrete-deep); }
+
+  /* ---------- Stock grid ---------- */
+  .grid {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+    padding-bottom: 72px;
+  }
+  .item {
+    background: var(--paper); border: 1px solid var(--concrete-deep);
+    display: flex; flex-direction: column;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .item:hover { transform: translateY(-2px); box-shadow: 0 14px 26px -20px rgba(23,25,26,.6); }
+  .item:target { outline: 3px solid var(--caution); outline-offset: -1px; }
+  .grid { scroll-margin-top: 80px; }
+  .item__img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: var(--concrete-deep); }
+  .item__body { padding: 14px 15px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .item__sku { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--zinc); }
+  .item__title { font-size: 15px; font-weight: 600; line-height: 1.3; }
+  .item__desc { font-size: 13px; line-height: 1.5; color: #5B5F62; flex: 1; }
+  .item__foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .item__price { font-family: var(--mono); font-weight: 600; font-size: 15px; }
+  .item__cat { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--signal); }
+
+  /* ---------- Footer ---------- */
+  .foot {
+    border-top: 1px solid var(--concrete-deep); padding: 26px 0 48px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+    color: var(--zinc); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .foot a { color: var(--signal); text-decoration: none; }
+  .foot a:hover { text-decoration: underline; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="signbar">
+  <div class="wrap signbar__inner">
+    <div class="signbar__name">Corner Hardware</div>
+    <div class="signbar__meta">
+      <span>Est. 1998 · Aisles 1–6</span>
+      <span class="pill" id="status">Search offline</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <p class="hero__eyebrow">Counter service</p>
+    <h1 class="hero__title">Tell us what's broken</h1>
+    <p class="hero__lede">
+      Nobody walks in asking for a spring-toggle anchor. They say “I want to hang a heavy mirror.”
+      Describe the job in your own words and the search figures out the part.
+    </p>
+
+    <div class="counter">
+      <div class="counter__head">
+        <span class="counter__label">Ask the clerk</span>
+        <span class="counter__note" id="counter-note">Powered by PolarBear</span>
+      </div>
+      <div class="counter__body" id="counter-body">
+        <!-- Widget or setup form is injected here -->
+      </div>
+    </div>
+  </section>
+
+  <div class="aisle" id="aisle-label">In stock today · 18 items</div>
+  <section class="grid" id="grid"></section>
+</main>
+
+<footer class="wrap foot">
+  <span>Corner Hardware · Demo storefront for testing PolarBear search</span>
+  <a href="https://github.com/dukesky/PolarBear" target="_blank" rel="noopener">github.com/dukesky/PolarBear</a>
+</footer>
+
+<script>
+(() => {
+  const DEFAULT_API = 'https://polarbear-backend-399780699896.us-central1.run.app';
+  const params = new URLSearchParams(location.search);
+  const api = params.get('api') || localStorage.getItem('cornerhw_api') || DEFAULT_API;
+  const keyFromUrl = params.get('key');
+  if (keyFromUrl) localStorage.setItem('cornerhw_key', keyFromUrl);
+  if (params.get('api')) localStorage.setItem('cornerhw_api', params.get('api'));
+  const key = localStorage.getItem('cornerhw_key');
+
+  const body = document.getElementById('counter-body');
+  const status = document.getElementById('status');
+
+  const ASKS = [
+    'my faucet drips',
+    'hang a heavy mirror',
+    'the door squeaks',
+    'cold draft from the window',
+    'my sink is clogged',
+    'painting the bedroom',
+  ];
+
+  function mountWidget() {
+    body.innerHTML = `
+      <div id="polarbear-search"></div>
+      <div class="asks">
+        <div class="asks__label">People ask us</div>
+        <div class="asks__row">${ASKS.map(q => `<button class="ask" type="button">${q}</button>`).join('')}</div>
+      </div>`;
+
+    const s = document.createElement('script');
+    s.src = api.replace(/\/$/, '') + '/widget.js';
+    s.dataset.key = key;
+    s.dataset.api = api;
+    s.async = true;
+    s.onload = () => {
+      status.textContent = 'Search live';
+      status.classList.add('pill--live');
+    };
+    s.onerror = () => {
+      status.textContent = 'Search unreachable';
+    };
+    document.body.appendChild(s);
+
+    // The example questions drive the widget, so a first-time visitor
+    // sees what "describe the problem" actually means.
+    body.querySelectorAll('.ask').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const shadow = document.getElementById('polarbear-search')?.shadowRoot;
+        if (!shadow) return;
+        const box = shadow.querySelector('.pb-input');
+        if (box) {
+          box.focus();
+          // A real click focuses the box; dispatch explicitly too so the
+          // overlay still opens when the window itself is not focused.
+          box.dispatchEvent(new FocusEvent('focus'));
+        }
+        const panel = shadow.querySelector('.pb-panel-input');
+        if (!panel) return;
+        panel.value = btn.textContent;
+        panel.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+  }
+
+  function showSetup() {
+    body.innerHTML = `
+      <div class="setup">
+        <div class="setup__title">Connect this store to PolarBear</div>
+        <ol class="setup__steps">
+          <li>Register at <a href="${api}" target="_blank" rel="noopener">your PolarBear dashboard</a> and upload <code>products.csv</code> from this folder.</li>
+          <li>Open <strong>Settings</strong> and copy your <strong>Public Search Key</strong>.</li>
+          <li>Paste it below — it stays in this browser only.</li>
+        </ol>
+        <form class="setup__form" id="setup-form">
+          <input class="setup__input" id="key-input" placeholder="pb_search_…" autocomplete="off" spellcheck="false">
+          <button class="btn" type="submit">Connect</button>
+        </form>
+      </div>`;
+    document.getElementById('setup-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = document.getElementById('key-input').value.trim();
+      if (!v) return;
+      localStorage.setItem('cornerhw_key', v);
+      location.reload();
+    });
+  }
+
+  // ---- Stock grid, read from the same CSV the merchant uploads ----
+  fetch('products.csv')
+    .then(r => r.text())
+    .then(text => {
+      const [head, ...lines] = text.trim().split('\n');
+      const cols = head.split(',');
+      const rows = lines.map(line => {
+        // minimal CSV parse: handles the quoted tags column
+        const cells = line.match(/("([^"]*)")|([^,]*)/g).filter((_, i) => i % 2 === 0);
+        const o = {};
+        cols.forEach((c, i) => (o[c] = (cells[i] || '').replace(/^"|"$/g, '')));
+        return o;
+      });
+      document.getElementById('grid').innerHTML = rows.map(p => `
+        <article class="item" id="${p.id}">
+          <img class="item__img" src="img/${p.id}.svg" alt="" loading="lazy">
+          <div class="item__body">
+            <div class="item__sku">${p.id}</div>
+            <h2 class="item__title">${p.title}</h2>
+            <p class="item__desc">${p.description}</p>
+            <div class="item__foot">
+              <span class="item__price">$${p.price}</span>
+              <span class="item__cat">${p.category}</span>
+            </div>
+          </div>
+        </article>`).join('');
+      document.getElementById('aisle-label').textContent = `In stock today · ${rows.length} items`;
+    })
+    .catch(() => {
+      document.getElementById('grid').innerHTML =
+        '<p style="color:#5B5F62">Serve this folder over HTTP to load the stock list.</p>';
+    });
+
+  key ? mountWidget() : showSetup();
+})();
+</script>
+</body>
+</html>

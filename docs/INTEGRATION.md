@@ -56,8 +56,8 @@ optional and improves results:
 
 | Column | Required? | Notes |
 |---|---|---|
-| `id` | **Required** | Any unique value per product |
 | `title` | **Required** | The product name |
+| `id` | Optional | Your own SKU or product code. Leave it out and PolarBear numbers products for you |
 | `description` | Recommended | Powers the AI semantic matching — richer is better |
 | `price` | Recommended | Shown in search results |
 | `category`, `brand`, `tags` | Recommended | Improve keyword matching |
@@ -81,7 +81,7 @@ id,title,description,price,category,brand,tags,url,image_url
 1,Lavender Soy Candle,Calming lavender soy wax candle for relaxing evenings,14,Candles,MyShop,"soy,lavender",https://myshop.com/p/lavender,https://myshop.com/img/lavender.jpg
 ```
 
-Re-uploading merges by `id`: existing products are updated, new ones added.
+Re-uploading with the same `id` merges: existing products are updated, new ones added. Without an `id`, each upload creates new products.
 
 > **Tip:** include a `url` for every product. Without it, results display
 > product information but shoppers can't click through to buy.

@@ -72,3 +72,23 @@ export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: numb
     t = setTimeout(() => fn(...args), ms);
   };
 }
+
+/** Tell the backend the widget mounted, so the merchant can verify the install
+ *  before any shopper has searched. Fire-and-forget: never throws. */
+export function sendInstallPing(
+  cfg: WidgetConfig,
+  fetchFn: typeof fetch = fetch.bind(globalThis)
+): void {
+  try {
+    const p = fetchFn(`${cfg.api}/analytics/install-ping`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'X-PolarBear-Key': cfg.key },
+    });
+    if (p && typeof (p as Promise<unknown>).catch === 'function') {
+      (p as Promise<unknown>).catch(() => {});
+    }
+  } catch {
+    /* never break the merchant page */
+  }
+}

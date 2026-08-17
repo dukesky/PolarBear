@@ -1,5 +1,6 @@
 import { css } from './styles';
 import { mountSearchBox } from './search-box';
+import { sendInstallPing } from './api';
 
 (() => {
   const script = document.currentScript as HTMLScriptElement | null;
@@ -28,6 +29,7 @@ import { mountSearchBox } from './search-box';
     style.textContent = css;
     shadow.appendChild(style);
     mountSearchBox(shadow, { api, key });
+    sendInstallPing({ api, key });
   };
 
   if (document.readyState === 'loading') {

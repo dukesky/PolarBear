@@ -58,3 +58,18 @@ test('safeUrl only allows http(s)', async () => {
   assert.equal(safeUrl(undefined), undefined);
   assert.equal(safeUrl('/relative/path'), '/relative/path');
 });
+
+test('install ping posts once with the key and never throws', async () => {
+  const { sendInstallPing } = await import('./.api.build.mjs');
+  const calls = [];
+  sendInstallPing({ api: 'http://x', key: 'k' }, (url, init) => {
+    calls.push({ url, init });
+    return Promise.resolve({ ok: true });
+  });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/analytics\/install-ping$/);
+  assert.equal(calls[0].init.headers['X-PolarBear-Key'], 'k');
+
+  // a broken fetch must not propagate
+  sendInstallPing({ api: 'http://x', key: 'k' }, () => { throw new Error('boom'); });
+});

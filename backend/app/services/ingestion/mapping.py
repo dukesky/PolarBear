@@ -64,6 +64,13 @@ def slugify(text: str) -> str:
     return s[:64].strip("-")
 
 
+def sanitize_id(value: str) -> str:
+    """Meilisearch only accepts a-z A-Z 0-9 - _ in document ids, so a merchant
+    SKU like "SHIRT/RED/L" has to be reshaped before it can be an id."""
+    s = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value)).strip("-")
+    return s[:64].strip("-")
+
+
 def generate_ids(titles: list[str]) -> list[str]:
     """Stable ids from titles; duplicates get -2, -3 ... suffixes."""
     seen: dict[str, int] = {}
@@ -109,9 +116,21 @@ def build_documents(rows: list[dict], mapping: dict[str, str | None]) -> list[di
     titles = [str(r.get(mapping["title"], "") or "") for r in rows]
     id_source = mapping.get("id")
     if id_source:
-        ids = [str(r.get(id_source, "") or "").strip() for r in rows]
+        # Sanitize raw id values and de-duplicate them
+        raw_ids = [str(r.get(id_source, "") or "").strip() for r in rows]
+        sanitized = [sanitize_id(rid) for rid in raw_ids]
         generated = generate_ids(titles)
-        ids = [ids[i] or generated[i] for i in range(len(rows))]
+
+        # De-duplicate sanitized ids with -2, -3 suffixes; fall back to generated
+        seen: dict[str, int] = {}
+        ids: list[str] = []
+        for i in range(len(rows)):
+            if sanitized[i]:
+                base = sanitized[i]
+                seen[base] = seen.get(base, 0) + 1
+                ids.append(base if seen[base] == 1 else f"{base}-{seen[base]}")
+            else:
+                ids.append(generated[i])
     else:
         ids = generate_ids(titles)
 

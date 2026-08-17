@@ -95,3 +95,34 @@ def test_build_documents_rejects_unknown_source_column():
 
     with pytest.raises(ValueError, match="Nope"):
         build_documents([{"A": "x"}], {"title": "Nope"})
+
+
+def test_sanitize_id_makes_merchant_skus_safe():
+    from app.services.ingestion.mapping import sanitize_id
+
+    assert sanitize_id("ABC 123") == "ABC-123"
+    assert sanitize_id("SHIRT/RED/L") == "SHIRT-RED-L"
+    assert sanitize_id("#1001") == "1001"
+    assert sanitize_id("ok_id-9") == "ok_id-9"
+    assert sanitize_id("###") == ""
+
+
+def test_build_documents_sanitizes_and_dedupes_mapped_ids():
+    from app.services.ingestion.mapping import build_documents
+
+    rows = [
+        {"SKU": "ABC 123", "Title": "First"},
+        {"SKU": "ABC/123", "Title": "Second"},   # sanitizes to the same value
+        {"SKU": "", "Title": "Third Item"},       # falls back to generated id
+        {"SKU": "###", "Title": "Fourth Item"},   # sanitizes to empty -> generated
+    ]
+    mapping = {"id": "SKU", "title": "Title"}
+    docs = build_documents(rows, mapping)
+    ids = [d["id"] for d in docs]
+
+    assert ids[0] == "ABC-123"
+    assert ids[1] == "ABC-123-2"
+    assert ids[2] == "third-item"
+    assert ids[3] == "fourth-item"
+    import re as _re
+    assert all(_re.fullmatch(r"[a-zA-Z0-9_-]+", i) for i in ids)

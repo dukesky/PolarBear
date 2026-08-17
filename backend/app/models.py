@@ -5,7 +5,7 @@ from fastapi_users_db_sqlalchemy import (
     SQLAlchemyBaseOAuthAccountTableUUID,
     SQLAlchemyBaseUserTableUUID,
 )
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -25,6 +25,7 @@ class Tenant(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), default="My Store")
     owner_user_id: Mapped[uuid.UUID] = mapped_column(unique=True, index=True)
+    column_mapping: Mapped[str | None] = mapped_column(Text, default=None)
 
 
 class APIKey(Base):

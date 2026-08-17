@@ -1,7 +1,9 @@
 import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import get_async_session
 from app.core.tenancy import resolve_admin_tenant
 from app.models import Tenant
 from app.services.ingestion.mapping import build_documents, guess_mapping
@@ -30,16 +32,28 @@ def _read(file: UploadFile, content: bytes):
 async def preview_file(
     file: UploadFile = File(...),
     tenant: Tenant = Depends(resolve_admin_tenant),
+    session: AsyncSession = Depends(get_async_session),
 ):
     """Read a file's columns and a few rows so the merchant can confirm mapping."""
     columns, rows = _read(file, await file.read())
     if not rows:
         raise HTTPException(status_code=400, detail="File is empty or could not be parsed.")
+
+    guess = guess_mapping(columns)
+    if tenant.column_mapping:
+        try:
+            saved = json.loads(tenant.column_mapping)
+        except json.JSONDecodeError:
+            saved = None
+        # Only reuse a remembered mapping when it still fits this file.
+        if saved and all(v in columns for v in saved.values() if v):
+            guess = {**guess, **saved}
+
     return {
         "columns": columns,
         "sample_rows": rows[:3],
         "row_count": len(rows),
-        "guess": guess_mapping(columns),
+        "guess": guess,
     }
 
 
@@ -48,6 +62,7 @@ async def upload_file(
     file: UploadFile = File(...),
     mapping: str | None = Form(default=None),
     tenant: Tenant = Depends(resolve_admin_tenant),
+    session: AsyncSession = Depends(get_async_session),
 ):
     """Index a product file. With `mapping`, columns are translated first;
     without it, the file must already use PolarBear's own column names."""
@@ -80,6 +95,11 @@ async def upload_file(
         HybridIndexer(str(tenant.id)).index_data(documents)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    if mapping:
+        tenant.column_mapping = json.dumps(mapping_dict)
+        session.add(tenant)
+        await session.commit()
 
     return {
         "status": "success",

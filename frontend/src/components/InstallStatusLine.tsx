@@ -22,8 +22,6 @@ export default function InstallStatusLine() {
   if (!verdict) return null;
 
   const live = verdict === 'ok' || verdict === 'api_only';
-  const label =
-    verdict === 'api_only' ? 'App / API integration' : origin;
 
   return (
     <p className="mt-6 text-sm text-gray-500">
@@ -32,8 +30,10 @@ export default function InstallStatusLine() {
           live ? 'bg-green-500' : 'bg-gray-300'
         }`}
       />
-      {live ? (
-        <>Search live on <span className="font-medium text-gray-700">{label}</span></>
+      {verdict === 'api_only' ? (
+        <>Search live · <span className="font-medium text-gray-700">App / API integration</span></>
+      ) : verdict === 'ok' ? (
+        <>Search live on <span className="font-medium text-gray-700">{origin}</span></>
       ) : (
         <>
           Search not installed yet ·{' '}

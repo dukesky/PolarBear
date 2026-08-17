@@ -216,7 +216,6 @@ struct Product: Decodable {
     let id: String
     let title: String
     let description: String?
-    let price: Double?
     let url: String?
     let image_url: String?
 }
@@ -248,7 +247,6 @@ data class Product(
     val id: String,
     val title: String,
     val description: String? = null,
-    val price: Double? = null,
     val url: String? = null,
     val image_url: String? = null,
 )
@@ -259,25 +257,32 @@ data class SearchResponse(val query: String, val total: Int, val results: List<P
 suspend fun search(query: String): List<Product> = withContext(Dispatchers.IO) {
     val url = "https://YOUR-SERVER/search/?q=${URLEncoder.encode(query, "UTF-8")}" +
         "&key=pb_search_...&limit=8"
-    val conn = (URL(url).openConnection() as HttpURLConnection)
+    var conn: HttpURLConnection? = null
     try {
+        conn = (URL(url).openConnection() as HttpURLConnection)
         if (conn.responseCode != 200) return@withContext emptyList()
         val body = conn.inputStream.bufferedReader().readText()
         Json { ignoreUnknownKeys = true }.decodeFromString<SearchResponse>(body).results
     } catch (e: Exception) {
         emptyList()   // never let search break the screen
     } finally {
-        conn.disconnect()
+        conn?.disconnect()
     }
 }
 ```
+
+> **A note on `price`.** The API returns whatever your catalog holds: a number
+> when your file had a price column, or an empty string when it didn't. Decode
+> it tolerantly (or fetch it from your own catalog) rather than declaring it as
+> a plain number — a strict `Double` decoder will fail on a price-less product.
 
 **Is it safe to ship the key inside an app?**
 
 Yes, for the **public search key** (`pb_search_`). It is read-only and scoped
 to your catalog — the same threat model as putting it in a web page's source,
 which is exactly what the widget does. Someone who extracts it can search your
-public products and nothing else.
+catalog and post click events — exactly what any visitor to your website can
+already do.
 
 Never ship the **admin key** (`pb_admin_`) in an app. It can modify your
 catalog. Keep uploads on your own server or in the dashboard.

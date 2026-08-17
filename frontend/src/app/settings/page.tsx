@@ -239,6 +239,22 @@ interface StatusResponse {
   verdict: 'ok' | 'api_only' | 'wrong_domain' | 'not_found' | 'no_website';
 }
 
+/**
+ * Relative time since an install-ping's `last_seen`. The backend serializes
+ * naive UTC timestamps (no timezone suffix), so we append 'Z' before parsing.
+ */
+function ago(iso: string | null): string {
+  if (!iso) return '';
+  const then = new Date(`${iso}Z`);
+  const diffMin = Math.floor((Date.now() - then.getTime()) / 60000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
+}
+
 function InstallCheck() {
   const [website, setWebsite] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
@@ -252,7 +268,7 @@ function InstallCheck() {
         if (!d) return;
         setStatus(d);
         setSaved(d.website_url);
-        if (d.website_url) setWebsite(d.website_url);
+        setWebsite(d.website_url ?? '');
       })
       .catch(() => {});
   };
@@ -269,7 +285,7 @@ function InstallCheck() {
     if (r.ok) {
       const d = await r.json();
       setSaved(d.website_url);
-      setWebsite(d.website_url);
+      setWebsite(d.website_url ?? '');
       load();
     }
   };
@@ -316,53 +332,75 @@ function InstallCheck() {
         {checking ? 'Checking…' : 'Check my installation'}
       </button>
 
-      {status && (
-        <div className="mt-4 space-y-3">
-          <div>
-            <div className="text-xs font-semibold text-gray-700 mb-1">Website</div>
-            {status.web.status === 'ok' && (
-              <div className="p-3 rounded bg-green-50 text-green-800 text-sm">
-                Search box loaded on <strong>{status.web.origin}</strong>.
-              </div>
-            )}
-            {status.web.status === 'wrong_domain' && (
-              <div className="p-3 rounded bg-amber-50 text-amber-800 text-sm">
-                Found the search box on <strong>{status.web.origin}</strong>, but not on{' '}
-                <strong>{saved ?? 'your website'}</strong>. If that&apos;s a staging site
-                you&apos;re fine — otherwise update the address above.
-              </div>
-            )}
-            {status.web.status === 'none' && (
-              <div className="p-3 rounded bg-gray-50 text-gray-500 text-sm">Not detected</div>
-            )}
-          </div>
+      {status && (() => {
+        const webStatus = status.web?.status ?? 'none';
+        const apiStatus = status.api?.status ?? 'none';
+        const searchPing = status.pings?.find(
+          (p) => p.kind === 'search' && p.origin === status.web?.origin
+        );
+        const searchCount = status.api?.search_count ?? 0;
+        const lastSeen = ago(status.api?.last_seen ?? null);
 
-          <div>
-            <div className="text-xs font-semibold text-gray-700 mb-1">App / API</div>
-            {status.api.status === 'active' ? (
-              <div className="p-3 rounded bg-green-50 text-green-800 text-sm">
-                Received <strong>{status.api.search_count}</strong> searches from an app or
-                server.
-              </div>
-            ) : (
-              <div className="p-3 rounded bg-gray-50 text-gray-500 text-sm">Not detected</div>
-            )}
-          </div>
-
-          {status.web.status === 'none' && status.api.status === 'none' && (
-            <div className="p-3 rounded bg-red-50 text-red-700 text-sm">
-              <p className="font-medium mb-1">Nothing has reached us yet.</p>
-              <ul className="list-disc list-inside space-y-0.5 text-xs">
-                <li>Did you save and publish the page after pasting?</li>
-                <li>Is the code on a live page rather than a draft?</li>
-                <li>Did you paste both lines, including the one starting with &lt;div&gt;?</li>
-                <li>Open your site once — the check only sees pages that have loaded.</li>
-                <li>Integrating from an app? Run one search from it, then check again.</li>
-              </ul>
+        return (
+          <div className="mt-4 space-y-3">
+            <div>
+              <div className="text-xs font-semibold text-gray-700 mb-1">Website</div>
+              {webStatus === 'ok' && (
+                <div className="p-3 rounded bg-green-50 text-green-800 text-sm">
+                  Search box loaded on <strong>{status.web?.origin}</strong> —{' '}
+                  {searchPing
+                    ? `it has answered ${searchPing.count} search${
+                        searchPing.count === 1 ? '' : 'es'
+                      }.`
+                    : 'no shopper has searched yet.'}
+                </div>
+              )}
+              {webStatus === 'wrong_domain' && (
+                <div className="p-3 rounded bg-amber-50 text-amber-800 text-sm">
+                  Found the search box on <strong>{status.web?.origin}</strong>, but not on{' '}
+                  <strong>{saved ?? 'your website'}</strong>. If that&apos;s a staging site
+                  you&apos;re fine — otherwise update the address above.
+                </div>
+              )}
+              {webStatus === 'none' && (
+                <div className="p-3 rounded bg-gray-50 text-gray-500 text-sm">Not detected</div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+
+            <div>
+              <div className="text-xs font-semibold text-gray-700 mb-1">App / API</div>
+              {apiStatus === 'active' ? (
+                <div className="p-3 rounded bg-green-50 text-green-800 text-sm">
+                  {searchCount === 0 ? (
+                    'API connection detected — no searches yet.'
+                  ) : (
+                    <>
+                      Received <strong>{searchCount}</strong> search
+                      {searchCount === 1 ? '' : 'es'} from an app or server.
+                      {lastSeen && ` (last seen ${lastSeen})`}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3 rounded bg-gray-50 text-gray-500 text-sm">Not detected</div>
+              )}
+            </div>
+
+            {webStatus === 'none' && apiStatus === 'none' && (
+              <div className="p-3 rounded bg-red-50 text-red-700 text-sm">
+                <p className="font-medium mb-1">Nothing has reached us yet.</p>
+                <ul className="list-disc list-inside space-y-0.5 text-xs">
+                  <li>Did you save and publish the page after pasting?</li>
+                  <li>Is the code on a live page rather than a draft?</li>
+                  <li>Did you paste both lines, including the one starting with &lt;div&gt;?</li>
+                  <li>Open your site once — the check only sees pages that have loaded.</li>
+                  <li>Integrating from an app? Run one search from it, then check again.</li>
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

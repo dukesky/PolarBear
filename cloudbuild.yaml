@@ -39,9 +39,11 @@ steps:
       - '--memory'
       - '1Gi'
       - '--allow-unauthenticated'
-      # Set environment variables for Meilisearch connection (to be replaced by user manually or via secret manager in prod)
-      # For now, we assume the user will set these in Cloud Run console or we can pass them if we had them.
-      # We'll leave them as placeholders or rely on the VM script output.
+      # No --set-env-vars here on purpose: deploying with only --image preserves
+      # the service's existing environment (MEILI_HOST, MEILI_MASTER_KEY,
+      # DATABASE_URL, SECRET_KEY, INDEX_STORAGE, GCS_BUCKET, GCS_PUBLIC_BUCKET,
+      # PUBLIC_BACKEND_URL, FRONTEND_URL). Listing them here would put secrets
+      # in the repo. Set or change them with `gcloud run services update`.
     id: 'Deploy Backend'
     waitFor: ['Push Backend']
 
@@ -59,16 +61,15 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
-      # Pass the Backend URL to the Frontend
-      # Note: We might need to know the backend URL beforehand or update it later.
-      # For simplicity in this MVP CI/CD, we might need to hardcode or use a fixed service name URL if internal.
-      # But since they are separate services, we'll need the public URL.
-      # A common pattern is to deploy backend, get URL, then deploy frontend with that arg.
-      # However, Cloud Run URLs are deterministic based on service name + project.
-      # So we can predict it: https://polarbear-backend-<hash>-uc.a.run.app
-      # For now, we will let the user configure the NEXT_PUBLIC_API_URL env var in Cloud Run console.
+      # The backend URL is baked into the frontend image at build time via the
+      # NEXT_PUBLIC_API_URL build arg (see the Build Frontend step and the
+      # _BACKEND_URL substitution) — NEXT_PUBLIC_* vars cannot be set at runtime.
     id: 'Deploy Frontend'
-    waitFor: ['Push Frontend']
+    # Wait for the backend too. The frontend image is small and would otherwise
+    # go live ~20 minutes before the ~2GB backend image finishes pushing,
+    # leaving merchants with a new UI calling endpoints that don't exist yet.
+    # Backend-first means the overlap is harmless: new endpoints nobody calls.
+    waitFor: ['Push Frontend', 'Deploy Backend']
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/polarbear-repo/backend:$COMMIT_SHA'

@@ -64,6 +64,7 @@ Upload `demo-store/products.csv` to your PolarBear account, paste your search ke
 - **🛍️ Product Management**: Built-in catalog management to edit products and upload images directly.
 - **🔐 Multi-Tenant**: Register an account, get isolated indexes and API keys — one deployment serves many businesses.
 - **🧩 Embeddable Widget**: paste two lines into any website (Shopify, WordPress, Wix, custom) and get an AI search box for your catalog.
+- **📱 Works in apps too**: the search API is a plain HTTP call — integrate iOS, Android, or any backend in a few dozen lines. See the [integration guide](docs/INTEGRATION.md#use-polarbear-in-a-mobile-app).
 - **☁️ Cloud-Native**: Dockerized for easy deployment on Google Cloud Run, AWS, or your own server.
 - **🔓 Open Source**: 100% free to use, modify, and distribute.
 

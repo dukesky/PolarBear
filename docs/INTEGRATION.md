@@ -204,6 +204,113 @@ curl -X POST "https://YOUR-SERVER/analytics/track" \
   -d '{"type": "click", "product_id": "1", "title": "Winter Jacket"}'
 ```
 
+## Use PolarBear in a mobile app
+
+The embeddable widget is web-only — it renders into a web page. Native apps
+call the same REST API directly, which takes a few dozen lines.
+
+**iOS (Swift)**
+
+```swift
+struct Product: Decodable {
+    let id: String
+    let title: String
+    let description: String?
+    let price: Double?
+    let url: String?
+    let image_url: String?
+}
+
+struct SearchResponse: Decodable {
+    let query: String
+    let total: Int
+    let results: [Product]
+}
+
+func search(_ query: String) async throws -> [Product] {
+    var components = URLComponents(string: "https://YOUR-SERVER/search/")!
+    components.queryItems = [
+        URLQueryItem(name: "q", value: query),
+        URLQueryItem(name: "key", value: "pb_search_..."),
+        URLQueryItem(name: "limit", value: "8"),
+    ]
+    let (data, response) = try await URLSession.shared.data(from: components.url!)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+    return try JSONDecoder().decode(SearchResponse.self, from: data).results
+}
+```
+
+**Android (Kotlin)**
+
+```kotlin
+@Serializable
+data class Product(
+    val id: String,
+    val title: String,
+    val description: String? = null,
+    val price: Double? = null,
+    val url: String? = null,
+    val image_url: String? = null,
+)
+
+@Serializable
+data class SearchResponse(val query: String, val total: Int, val results: List<Product>)
+
+suspend fun search(query: String): List<Product> = withContext(Dispatchers.IO) {
+    val url = "https://YOUR-SERVER/search/?q=${URLEncoder.encode(query, "UTF-8")}" +
+        "&key=pb_search_...&limit=8"
+    val conn = (URL(url).openConnection() as HttpURLConnection)
+    try {
+        if (conn.responseCode != 200) return@withContext emptyList()
+        val body = conn.inputStream.bufferedReader().readText()
+        Json { ignoreUnknownKeys = true }.decodeFromString<SearchResponse>(body).results
+    } catch (e: Exception) {
+        emptyList()   // never let search break the screen
+    } finally {
+        conn.disconnect()
+    }
+}
+```
+
+**Is it safe to ship the key inside an app?**
+
+Yes, for the **public search key** (`pb_search_`). It is read-only and scoped
+to your catalog — the same threat model as putting it in a web page's source,
+which is exactly what the widget does. Someone who extracts it can search your
+public products and nothing else.
+
+Never ship the **admin key** (`pb_admin_`) in an app. It can modify your
+catalog. Keep uploads on your own server or in the dashboard.
+
+**Practical notes**
+
+- **Debounce** roughly 250ms after the last keystroke, like the widget does,
+  instead of firing a request per character.
+- **Use `limit`** — 8 results is plenty for a search-as-you-type list.
+- **Track clicks** so your Insights dashboard reflects app traffic. This works
+  from an app exactly as it does from a browser:
+
+  ```bash
+  curl -X POST "https://YOUR-SERVER/analytics/track" \
+    -H "X-PolarBear-Key: pb_search_..." \
+    -H "Content-Type: application/json" \
+    -d '{"type": "click", "product_id": "SKU-1", "title": "Blue Mug"}'
+  ```
+
+- **First request after an idle period can be slow.** A scale-to-zero
+  deployment cold-starts in a few seconds; show a spinner and set a generous
+  timeout on the first call.
+- **Fail quietly.** If search errors, show an empty state rather than an error
+  dialog — the widget follows the same rule.
+
+**How the self-check reports app integrations**
+
+Settings → *Check your installation* reports two channels. App and server
+requests arrive without a browser `Origin` header, so they appear under
+**App / API**, not **Website**. If you only integrate through an app, leave the
+website field empty and expect "Website: Not detected" — that is correct, not a
+failure.
+
 ---
 
 ## Running PolarBear yourself

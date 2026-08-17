@@ -101,6 +101,7 @@ export default function SettingsPage() {
         </div>
 
         <EmbedSection />
+        <InstallCheck />
       </div>
     </div>
   );
@@ -208,6 +209,144 @@ function EmbedSection() {
           </button>
         )}
       </div>
+
+      <p className="mt-3 text-xs text-gray-500">
+        Someone else maintains your site?{' '}
+        <a
+          className="text-indigo-600 hover:underline"
+          href={`mailto:?subject=${encodeURIComponent(
+            'Please add our product search box to the website'
+          )}&body=${encodeURIComponent(
+            `Hi,\n\nPlease add our product search to the website.\n\n` +
+              `Paste these two lines where the search box should appear:\n\n${snippet}\n\n` +
+              `The first line is the spot the box renders in; the second loads it.\n` +
+              `Platform-by-platform instructions: https://github.com/dukesky/PolarBear/blob/main/docs/INTEGRATION.md\n\n` +
+              `Thanks!`
+          )}`}
+        >
+          Email these instructions to them
+        </a>
+      </p>
+    </div>
+  );
+}
+
+interface StatusResponse {
+  website_url: string | null;
+  pings: { origin: string; kind: string; count: number; last_seen: string | null }[];
+  verdict: 'ok' | 'wrong_domain' | 'not_found' | 'no_website';
+}
+
+function InstallCheck() {
+  const [website, setWebsite] = useState('');
+  const [saved, setSaved] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const load = () => {
+    authFetch('/tenant/install-status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: StatusResponse | null) => {
+        if (!d) return;
+        setStatus(d);
+        setSaved(d.website_url);
+        if (d.website_url) setWebsite(d.website_url);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(load, []);
+
+  const saveWebsite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const r = await authFetch('/tenant/website', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ website_url: website }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      setSaved(d.website_url);
+      setWebsite(d.website_url);
+      load();
+    }
+  };
+
+  const check = async () => {
+    setChecking(true);
+    await new Promise((r) => setTimeout(r, 400));
+    load();
+    setChecking(false);
+  };
+
+  const loadPing = status?.pings.find((p) => p.kind === 'load');
+  const searchPing = status?.pings.find((p) => p.kind === 'search');
+
+  return (
+    <div className="mt-6 p-4 border border-gray-200 rounded-lg">
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Check your installation</h2>
+      <p className="text-xs text-gray-500 mb-3">
+        After pasting the code into your site, confirm it&apos;s live here.
+      </p>
+
+      <form onSubmit={saveWebsite} className="flex gap-2 mb-3">
+        <input
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          placeholder="yourstore.com"
+          className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <button
+          type="submit"
+          className="text-xs font-medium px-3 py-2 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+        >
+          {saved ? 'Update' : 'Save'}
+        </button>
+      </form>
+
+      <button
+        onClick={check}
+        disabled={checking}
+        className={`text-sm font-medium px-4 py-2 rounded-md text-white ${
+          checking ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'
+        }`}
+      >
+        {checking ? 'Checking…' : 'Check my installation'}
+      </button>
+
+      {status?.verdict === 'ok' && (
+        <div className="mt-3 p-3 rounded bg-green-50 text-green-800 text-sm">
+          Working — the search box loaded on <strong>{loadPing?.origin}</strong>.
+          {searchPing
+            ? ` It has answered ${searchPing.count} searches.`
+            : ' No shopper has searched yet.'}
+        </div>
+      )}
+      {status?.verdict === 'wrong_domain' && (
+        <div className="mt-3 p-3 rounded bg-amber-50 text-amber-800 text-sm">
+          Found the search box on <strong>{loadPing?.origin}</strong>, but not on{' '}
+          <strong>{saved}</strong>. If that&apos;s a staging site, you&apos;re fine —
+          otherwise update the address above or check which site you pasted the code
+          into.
+        </div>
+      )}
+      {status?.verdict === 'not_found' && (
+        <div className="mt-3 p-3 rounded bg-red-50 text-red-700 text-sm">
+          <p className="font-medium mb-1">No sign of the search box yet.</p>
+          <ul className="list-disc list-inside space-y-0.5 text-xs">
+            <li>Did you save and publish the page after pasting?</li>
+            <li>Is the code on a live page rather than a draft?</li>
+            <li>Did you paste both lines, including the one starting with &lt;div&gt;?</li>
+            <li>Open your site once — the check only sees pages that have loaded.</li>
+          </ul>
+        </div>
+      )}
+      {status?.verdict === 'no_website' && (
+        <div className="mt-3 p-3 rounded bg-gray-50 text-gray-600 text-sm">
+          Add your website address above so we can tell you whether the box is live on
+          it.
+        </div>
+      )}
     </div>
   );
 }

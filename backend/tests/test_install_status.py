@@ -57,3 +57,22 @@ async def test_status_wrong_domain(registered):
 async def test_status_requires_auth(client):
     assert (await client.get("/tenant/install-status")).status_code == 401
     assert (await client.put("/tenant/website", json={"website_url": "x.com"})).status_code == 401
+
+
+async def test_blank_website_is_stored_as_null(registered):
+    client, token, _ = registered
+    auth = {"Authorization": f"Bearer {token}"}
+    r = await client.put("/tenant/website", json={"website_url": ""}, headers=auth)
+    assert r.status_code == 200
+    assert r.json()["website_url"] is None
+    assert (await client.get("/tenant/install-status", headers=auth)).json()["verdict"] == "no_website"
+
+
+async def test_unknown_origin_never_counts_as_ok(registered):
+    client, token, _ = registered
+    auth = {"Authorization": f"Bearer {token}"}
+    await client.put("/tenant/website", json={"website_url": "mystore.com"}, headers=auth)
+    key = (await client.get("/tenant/keys", headers=auth)).json()["search"]["key"]
+    # a ping with no Origin header is recorded as "unknown"
+    await client.post("/analytics/install-ping", headers={"X-PolarBear-Key": key})
+    assert (await client.get("/tenant/install-status", headers=auth)).json()["verdict"] != "ok"

@@ -26,7 +26,15 @@ async def search(
         raise HTTPException(status_code=500, detail=str(e))
 
     background_tasks.add_task(log_search, tenant_id, q, len(results))
-    background_tasks.add_task(
-        record_ping, tenant_id, origin_from_request(request), "search"
+
+    # Only a public search key means an actual shopper hit the widget — a
+    # bare JWT means the merchant is searching their own dashboard, which
+    # shouldn't inflate their "answered N searches" install-check count.
+    has_search_key = bool(
+        request.headers.get("X-PolarBear-Key") or request.query_params.get("key")
     )
+    if has_search_key:
+        background_tasks.add_task(
+            record_ping, tenant_id, origin_from_request(request), "search"
+        )
     return {"query": q, "limit": limit, "total": len(results), "results": results}

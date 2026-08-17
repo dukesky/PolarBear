@@ -279,7 +279,9 @@ function InstallCheck() {
     setChecking(false);
   };
 
-  const loadPing = status?.pings.find((p) => p.kind === 'load');
+  const loadPing =
+    status?.pings.find((p) => p.kind === 'load' && p.origin === saved) ??
+    status?.pings.find((p) => p.kind === 'load');
   const searchPing = status?.pings.find((p) => p.kind === 'search');
 
   return (

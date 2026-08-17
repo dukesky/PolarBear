@@ -8,7 +8,7 @@ from app.core.db import get_async_session
 from app.core.tenancy import get_current_tenant
 from app.models import APIKey, Tenant, WidgetPing
 from app.services.keys import reset_key
-from app.services.origins import normalize_origin
+from app.services.origins import UNKNOWN, normalize_origin
 
 router = APIRouter()
 
@@ -74,7 +74,8 @@ async def set_website(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Store the merchant's site as a bare host so ping comparisons are robust."""
-    tenant.website_url = normalize_origin(payload.website_url)
+    normalized = normalize_origin(payload.website_url)
+    tenant.website_url = None if normalized in ("", UNKNOWN) else normalized
     session.add(tenant)
     await session.commit()
     return {"website_url": tenant.website_url}
@@ -107,7 +108,9 @@ async def install_status(
         verdict = "no_website"
     elif not loads:
         verdict = "not_found"
-    elif any(p.origin == tenant.website_url for p in loads):
+    # An origin-less ping is recorded as UNKNOWN — that can never satisfy a
+    # match, even if a legacy row somehow has website_url == UNKNOWN too.
+    elif any(p.origin == tenant.website_url and p.origin != UNKNOWN for p in loads):
         verdict = "ok"
     else:
         verdict = "wrong_domain"

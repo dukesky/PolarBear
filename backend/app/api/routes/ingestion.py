@@ -73,6 +73,8 @@ async def upload_file(
             mapping_dict = json.loads(mapping)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="mapping must be valid JSON.")
+        if not isinstance(mapping_dict, dict):
+            raise HTTPException(status_code=400, detail="mapping must be a JSON object.")
         columns, rows = _read(file, content)
         if not rows:
             raise HTTPException(status_code=400, detail="File is empty or could not be parsed.")

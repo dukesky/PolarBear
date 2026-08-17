@@ -53,3 +53,27 @@ async def test_install_ping_rejects_bad_key(client):
     )
     assert r.status_code == 401
     assert (await client.post("/analytics/install-ping")).status_code == 401
+
+
+async def test_dashboard_jwt_search_does_not_record_a_ping(registered, monkeypatch):
+    from sqlalchemy import select
+
+    from app.api.routes import search as search_route
+
+    class StubSearcher:
+        def __init__(self, tenant_id, storage=None, meili_client=None):
+            pass
+
+        def search(self, q, limit=20):
+            return []
+
+    client, token, _ = registered
+    monkeypatch.setattr(search_route, "HybridSearcher", StubSearcher)
+    r = await client.get("/search/", params={"q": "shoe"}, headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+
+    from app.core.db import async_session_maker
+    from app.models import WidgetPing
+
+    async with async_session_maker() as s:
+        assert (await s.execute(select(WidgetPing))).scalars().all() == []

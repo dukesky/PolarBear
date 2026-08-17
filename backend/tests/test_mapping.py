@@ -126,3 +126,17 @@ def test_build_documents_sanitizes_and_dedupes_mapped_ids():
     assert ids[3] == "fourth-item"
     import re as _re
     assert all(_re.fullmatch(r"[a-zA-Z0-9_-]+", i) for i in ids)
+
+
+def test_generated_ids_are_meilisearch_legal_for_cjk_titles():
+    import re
+    from app.services.ingestion.mapping import build_documents, generate_ids
+
+    ids = generate_ids(["蓝色马克杯", "红色马克杯", "蓝色马克杯"])
+    assert all(re.fullmatch(r"[a-zA-Z0-9_-]+", i) for i in ids), ids
+    assert len(set(ids)) == 3  # still unique
+
+    docs = build_documents(
+        [{"名称": "蓝色马克杯"}, {"名称": "红色马克杯"}], {"title": "名称"}
+    )
+    assert all(re.fullmatch(r"[a-zA-Z0-9_-]+", d["id"]) for d in docs)

@@ -72,11 +72,17 @@ def sanitize_id(value: str) -> str:
 
 
 def generate_ids(titles: list[str]) -> list[str]:
-    """Stable ids from titles; duplicates get -2, -3 ... suffixes."""
+    """Stable ids from titles; duplicates get -2, -3 ... suffixes.
+
+    slugify() keeps CJK characters (useful for readability elsewhere), but
+    Meilisearch document ids only allow a-z A-Z 0-9 _ -, so the slug is run
+    through sanitize_id() as well. A title made entirely of CJK characters
+    (or other non-ASCII text) sanitizes to "" and falls back to item-N.
+    """
     seen: dict[str, int] = {}
     ids: list[str] = []
     for i, title in enumerate(titles, start=1):
-        base = slugify(title) or f"item-{i}"
+        base = sanitize_id(slugify(title)) or f"item-{i}"
         seen[base] = seen.get(base, 0) + 1
         ids.append(base if seen[base] == 1 else f"{base}-{seen[base]}")
     return ids

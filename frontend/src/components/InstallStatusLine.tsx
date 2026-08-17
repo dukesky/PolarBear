@@ -14,14 +14,17 @@ export default function InstallStatusLine() {
       .then((d) => {
         if (!d) return;
         setVerdict(d.verdict);
-        setOrigin(d.pings.find((p: { kind: string }) => p.kind === 'load')?.origin ?? null);
+        setOrigin(d.web?.origin ?? null);
       })
       .catch(() => {});
   }, []);
 
   if (!verdict) return null;
 
-  const live = verdict === 'ok';
+  const live = verdict === 'ok' || verdict === 'api_only';
+  const label =
+    verdict === 'api_only' ? 'App / API integration' : origin;
+
   return (
     <p className="mt-6 text-sm text-gray-500">
       <span
@@ -30,7 +33,7 @@ export default function InstallStatusLine() {
         }`}
       />
       {live ? (
-        <>Search live on <span className="font-medium text-gray-700">{origin}</span></>
+        <>Search live on <span className="font-medium text-gray-700">{label}</span></>
       ) : (
         <>
           Search not installed yet ·{' '}

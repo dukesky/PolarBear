@@ -234,7 +234,9 @@ function EmbedSection() {
 interface StatusResponse {
   website_url: string | null;
   pings: { origin: string; kind: string; count: number; last_seen: string | null }[];
-  verdict: 'ok' | 'wrong_domain' | 'not_found' | 'no_website';
+  web: { status: 'ok' | 'wrong_domain' | 'none'; origin: string | null; last_seen: string | null };
+  api: { status: 'active' | 'none'; search_count: number; last_seen: string | null };
+  verdict: 'ok' | 'api_only' | 'wrong_domain' | 'not_found' | 'no_website';
 }
 
 function InstallCheck() {
@@ -279,11 +281,6 @@ function InstallCheck() {
     setChecking(false);
   };
 
-  const loadPing =
-    status?.pings.find((p) => p.kind === 'load' && p.origin === saved) ??
-    status?.pings.find((p) => p.kind === 'load');
-  const searchPing = status?.pings.find((p) => p.kind === 'search');
-
   return (
     <div className="mt-6 p-4 border border-gray-200 rounded-lg">
       <h2 className="text-sm font-semibold text-gray-900 mb-1">Check your installation</h2>
@@ -305,6 +302,9 @@ function InstallCheck() {
           {saved ? 'Update' : 'Save'}
         </button>
       </form>
+      <p className="-mt-1 mb-3 text-xs text-gray-500">
+        Only using an app or the API? Leave this empty.
+      </p>
 
       <button
         onClick={check}
@@ -316,37 +316,51 @@ function InstallCheck() {
         {checking ? 'Checking…' : 'Check my installation'}
       </button>
 
-      {status?.verdict === 'ok' && (
-        <div className="mt-3 p-3 rounded bg-green-50 text-green-800 text-sm">
-          Working — the search box loaded on <strong>{loadPing?.origin}</strong>.
-          {searchPing
-            ? ` It has answered ${searchPing.count} searches.`
-            : ' No shopper has searched yet.'}
-        </div>
-      )}
-      {status?.verdict === 'wrong_domain' && (
-        <div className="mt-3 p-3 rounded bg-amber-50 text-amber-800 text-sm">
-          Found the search box on <strong>{loadPing?.origin}</strong>, but not on{' '}
-          <strong>{saved}</strong>. If that&apos;s a staging site, you&apos;re fine —
-          otherwise update the address above or check which site you pasted the code
-          into.
-        </div>
-      )}
-      {status?.verdict === 'not_found' && (
-        <div className="mt-3 p-3 rounded bg-red-50 text-red-700 text-sm">
-          <p className="font-medium mb-1">No sign of the search box yet.</p>
-          <ul className="list-disc list-inside space-y-0.5 text-xs">
-            <li>Did you save and publish the page after pasting?</li>
-            <li>Is the code on a live page rather than a draft?</li>
-            <li>Did you paste both lines, including the one starting with &lt;div&gt;?</li>
-            <li>Open your site once — the check only sees pages that have loaded.</li>
-          </ul>
-        </div>
-      )}
-      {status?.verdict === 'no_website' && (
-        <div className="mt-3 p-3 rounded bg-gray-50 text-gray-600 text-sm">
-          Add your website address above so we can tell you whether the box is live on
-          it.
+      {status && (
+        <div className="mt-4 space-y-3">
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-1">Website</div>
+            {status.web.status === 'ok' && (
+              <div className="p-3 rounded bg-green-50 text-green-800 text-sm">
+                Search box loaded on <strong>{status.web.origin}</strong>.
+              </div>
+            )}
+            {status.web.status === 'wrong_domain' && (
+              <div className="p-3 rounded bg-amber-50 text-amber-800 text-sm">
+                Found the search box on <strong>{status.web.origin}</strong>, but not on{' '}
+                <strong>{saved ?? 'your website'}</strong>. If that&apos;s a staging site
+                you&apos;re fine — otherwise update the address above.
+              </div>
+            )}
+            {status.web.status === 'none' && (
+              <div className="p-3 rounded bg-gray-50 text-gray-500 text-sm">Not detected</div>
+            )}
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-1">App / API</div>
+            {status.api.status === 'active' ? (
+              <div className="p-3 rounded bg-green-50 text-green-800 text-sm">
+                Received <strong>{status.api.search_count}</strong> searches from an app or
+                server.
+              </div>
+            ) : (
+              <div className="p-3 rounded bg-gray-50 text-gray-500 text-sm">Not detected</div>
+            )}
+          </div>
+
+          {status.web.status === 'none' && status.api.status === 'none' && (
+            <div className="p-3 rounded bg-red-50 text-red-700 text-sm">
+              <p className="font-medium mb-1">Nothing has reached us yet.</p>
+              <ul className="list-disc list-inside space-y-0.5 text-xs">
+                <li>Did you save and publish the page after pasting?</li>
+                <li>Is the code on a live page rather than a draft?</li>
+                <li>Did you paste both lines, including the one starting with &lt;div&gt;?</li>
+                <li>Open your site once — the check only sees pages that have loaded.</li>
+                <li>Integrating from an app? Run one search from it, then check again.</li>
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import InstallStatusLine from "../components/InstallStatusLine";
 
 export default function Home() {
   return (
@@ -38,6 +39,8 @@ export default function Home() {
             Upload Data
           </Link>
         </div>
+
+        <InstallStatusLine />
 
         <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">

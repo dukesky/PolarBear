@@ -46,7 +46,13 @@ Registering automatically creates two API keys for you (visible in
 
 ## Step 1 — Upload your products
 
-Go to **Upload** and select a CSV or Excel file. Columns:
+Go to **Upload** and select a CSV or Excel file — including a raw export from
+Shopify, WooCommerce, or Square, or your own spreadsheet. PolarBear reads your
+column names, guesses what each one means, and shows you a confirmation screen
+before importing anything.
+
+Only one column is truly required: **the product name**. Everything else is
+optional and improves results:
 
 | Column | Required? | Notes |
 |---|---|---|
@@ -57,6 +63,16 @@ Go to **Upload** and select a CSV or Excel file. Columns:
 | `category`, `brand`, `tags` | Recommended | Improve keyword matching |
 | `image_url` | Optional | Product thumbnail in results |
 | `url` | Optional | Link to the product page — **makes results clickable** |
+
+**No product ID column?** That's fine — PolarBear numbers your products
+automatically from their names. One consequence worth knowing: if you rename a
+product and re-upload, it arrives as a new product rather than an update to the
+old one.
+
+**After you paste the snippet**, come back to **Settings → Check your
+installation**. Enter your website address and press the button: it tells you
+whether the search box actually loaded on your site, and what to check if it
+didn't.
 
 Example:
 

@@ -44,9 +44,9 @@ class DataParser:
             raise ValueError("Unsupported file format. Please upload CSV or Excel.")
 
         columns = [str(c) for c in df.columns]
-        duplicates = {c for c in columns if columns.count(c) > 1}
-        if duplicates:
-            raise ValueError(f"Duplicate column names: {', '.join(sorted(duplicates))}")
+        # pandas already uniquifies duplicate headers (Title, Title.1, ...), so a
+        # merchant with a repeated column picks the one they meant in the mapping
+        # UI instead of being blocked.
 
         df = df.fillna('')
         return columns, df.to_dict(orient='records')

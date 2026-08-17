@@ -112,3 +112,12 @@ async def test_upload_with_bad_mapping_is_400(registered, monkeypatch):
         data={"mapping": json.dumps({"price": "Price"})}, headers=auth,
     )
     assert r.status_code == 400  # title unmapped
+
+
+def test_read_rows_uniquifies_duplicate_headers_instead_of_failing():
+    from app.services.ingestion.parser import DataParser
+
+    columns, rows = DataParser.read_rows(b"Title,Title,Price\nA,B,1\n", "x.csv")
+    assert columns == ["Title", "Title.1", "Price"]
+    assert rows[0]["Title"] == "A"
+    assert rows[0]["Title.1"] == "B"

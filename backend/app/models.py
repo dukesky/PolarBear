@@ -26,6 +26,7 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(String(255), default="My Store")
     owner_user_id: Mapped[uuid.UUID] = mapped_column(unique=True, index=True)
     column_mapping: Mapped[str | None] = mapped_column(Text, default=None)
+    website_url: Mapped[str | None] = mapped_column(String(255), default=None)
 
 
 class APIKey(Base):

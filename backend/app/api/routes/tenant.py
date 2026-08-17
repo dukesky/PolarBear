@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_async_session
 from app.core.tenancy import get_current_tenant
-from app.models import APIKey, Tenant
+from app.models import APIKey, Tenant, WidgetPing
 from app.services.keys import reset_key
+from app.services.origins import normalize_origin
 
 router = APIRouter()
 
@@ -59,3 +61,55 @@ async def get_snippet(
         f'data-key="{key.plaintext}" async></script>'
     )
     return {"snippet": snippet}
+
+
+class WebsiteUpdate(BaseModel):
+    website_url: str
+
+
+@router.put("/website")
+async def set_website(
+    payload: WebsiteUpdate,
+    tenant: Tenant = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Store the merchant's site as a bare host so ping comparisons are robust."""
+    tenant.website_url = normalize_origin(payload.website_url)
+    session.add(tenant)
+    await session.commit()
+    return {"website_url": tenant.website_url}
+
+
+@router.get("/install-status")
+async def install_status(
+    tenant: Tenant = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Did the widget actually load on the merchant's site?"""
+    rows = (
+        await session.execute(
+            select(WidgetPing).where(WidgetPing.tenant_id == tenant.id)
+        )
+    ).scalars().all()
+
+    pings = [
+        {
+            "origin": p.origin,
+            "kind": p.kind,
+            "count": p.count,
+            "last_seen": p.last_seen.isoformat() if p.last_seen else None,
+        }
+        for p in rows
+    ]
+
+    loads = [p for p in rows if p.kind == "load"]
+    if not tenant.website_url:
+        verdict = "no_website"
+    elif not loads:
+        verdict = "not_found"
+    elif any(p.origin == tenant.website_url for p in loads):
+        verdict = "ok"
+    else:
+        verdict = "wrong_domain"
+
+    return {"website_url": tenant.website_url, "pings": pings, "verdict": verdict}

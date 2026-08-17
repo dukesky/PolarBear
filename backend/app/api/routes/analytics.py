@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +9,7 @@ from app.core.db import get_async_session
 from app.core.tenancy import get_current_tenant, resolve_search_tenant
 from app.models import ProductStat, SearchLog, Tenant
 from app.services.analytics_db import track_product_event
+from app.services.origins import origin_from_request, record_ping
 
 router = APIRouter()
 
@@ -27,6 +28,16 @@ async def track_event(event: TrackEvent, tenant_id: uuid.UUID = Depends(resolve_
         raise HTTPException(status_code=400, detail="Invalid event type")
     await track_product_event(tenant_id, event.type, event.product_id, event.title)
     return {"status": "success"}
+
+
+@router.post("/install-ping")
+async def install_ping(
+    request: Request, tenant_id: uuid.UUID = Depends(resolve_search_tenant)
+):
+    """The widget calls this once when it mounts, so a merchant can confirm the
+    install before any shopper has searched."""
+    await record_ping(tenant_id, origin_from_request(request), "load")
+    return {"status": "ok"}
 
 
 @router.get("/stats")

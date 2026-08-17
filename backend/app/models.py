@@ -59,3 +59,19 @@ class ProductStat(Base):
     title: Mapped[str] = mapped_column(String(500))
     clicks: Mapped[int] = mapped_column(Integer, default=0)
     orders: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class WidgetPing(Base):
+    """One row per (tenant, origin, kind) — grows with domains, not traffic."""
+
+    __tablename__ = "widget_pings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    origin: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(10))  # "load" | "search"
+    first_seen: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    count: Mapped[int] = mapped_column(Integer, default=0)
+
+    __table_args__ = (UniqueConstraint("tenant_id", "origin", "kind"),)

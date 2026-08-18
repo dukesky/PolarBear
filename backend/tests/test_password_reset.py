@@ -66,7 +66,7 @@ async def test_forgot_password_does_not_reveal_whether_an_account_exists(client,
 
     monkeypatch.setattr(users_module, "send_password_reset", fake_send)
 
-    r = await client.post("/auth/forgot-password", json={"email": "nobody@nowhere.test"})
+    r = await client.post("/auth/forgot-password", json={"email": "nobody@example.com"})
     assert r.status_code == 202
     assert calls == []  # nothing sent, but the caller cannot tell
 

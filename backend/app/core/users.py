@@ -12,6 +12,7 @@ from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from app.core.config import settings
 from app.core.db import async_session_maker, get_async_session
 from app.models import OAuthAccount, Tenant, User
+from app.services.email import send_password_reset
 from app.services.keys import create_tenant_keys
 
 
@@ -22,6 +23,7 @@ async def get_user_db(session=Depends(get_async_session)):
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = settings.SECRET_KEY
     verification_token_secret = settings.SECRET_KEY
+    reset_password_token_lifetime_seconds = 3600
 
     async def on_after_register(self, user: User, request: Request | None = None):
         async with async_session_maker() as session:
@@ -29,6 +31,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             session.add(tenant)
             await session.commit()
             await create_tenant_keys(session, tenant.id)
+
+    async def on_after_forgot_password(
+        self, user: User, token: str, request: Request | None = None
+    ):
+        # Never let a mail failure turn into a 500 - the caller must not be able
+        # to tell whether the address exists or the mailer is down.
+        try:
+            send_password_reset(user.email, token)
+        except Exception as e:
+            print(f"[auth] password reset email failed for {user.email}: {e}")
 
 
 async def get_user_manager(user_db=Depends(get_user_db)):

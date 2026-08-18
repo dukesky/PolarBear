@@ -62,3 +62,49 @@ class HybridIndexer:
             self.tenant_id, self.DOC_MAP_FILE, pickle.dumps([d["id"] for d in all_documents])
         )
         cache.invalidate(self.tenant_id)
+
+    def _fetch_all(self) -> list[dict]:
+        """Every document currently in this tenant's keyword index."""
+        try:
+            results = self.meili_client.index(self.index_name).get_documents({"limit": 10000})
+            return [dict(d) for d in results.results]
+        except meilisearch.errors.MeilisearchApiError as e:
+            if getattr(e, "code", None) != "index_not_found":
+                raise
+            return []
+
+    def delete_document(self, product_id: str) -> bool:
+        """Remove one product. Returns False when it wasn't there.
+
+        The FAISS index is positional, so it must be rebuilt from what remains -
+        deleting only from Meilisearch would leave vectors pointing at a product
+        that no longer exists.
+        """
+        existing = self._fetch_all()
+        remaining = [d for d in existing if str(d["id"]) != str(product_id)]
+        if len(remaining) == len(existing):
+            return False
+
+        self.meili_client.index(self.index_name).delete_document(str(product_id))
+        if remaining:
+            self.index_data([])  # re-embeds and rewrites artifacts from what's left
+        else:
+            self._clear_vectors()
+        cache.invalidate(self.tenant_id)
+        return True
+
+    def clear_all(self) -> int:
+        """Remove every product and the vector artifacts. Returns the count removed."""
+        count = len(self._fetch_all())
+        try:
+            self.meili_client.index(self.index_name).delete_all_documents()
+        except Exception as e:
+            print(f"Failed clearing Meilisearch documents for {self.tenant_id}: {e}")
+        self._clear_vectors()
+        cache.invalidate(self.tenant_id)
+        return count
+
+    def _clear_vectors(self) -> None:
+        """Empty vector artifacts so a search finds nothing rather than ghosts."""
+        self.storage.write(self.tenant_id, self.FAISS_FILE, b"")
+        self.storage.write(self.tenant_id, self.DOC_MAP_FILE, pickle.dumps([]))

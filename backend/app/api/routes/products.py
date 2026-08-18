@@ -1,7 +1,7 @@
 import uuid as uuid_mod
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from app.core.tenancy import resolve_admin_tenant
@@ -69,3 +69,33 @@ async def upload_product_image(
 
     await update_product(product_id, ProductUpdate(image_url=image_url), tenant)
     return {"status": "success", "image_url": image_url}
+
+
+@router.delete("/{product_id}")
+async def delete_product(product_id: str, tenant: Tenant = Depends(resolve_admin_tenant)):
+    """Remove one product from the catalog and the vector index."""
+    try:
+        removed = HybridIndexer(str(tenant.id)).delete_document(product_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not removed:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"status": "success", "deleted": product_id}
+
+
+@router.delete("/")
+async def clear_catalog(
+    confirm: str = Body(default="", embed=True),
+    tenant: Tenant = Depends(resolve_admin_tenant),
+):
+    """Remove every product. Requires an explicit confirmation string."""
+    if confirm != "delete all products":
+        raise HTTPException(
+            status_code=400,
+            detail='Send {"confirm": "delete all products"} to clear the catalog.',
+        )
+    try:
+        count = HybridIndexer(str(tenant.id)).clear_all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "deleted": count}

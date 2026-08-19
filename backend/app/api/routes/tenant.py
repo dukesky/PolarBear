@@ -198,7 +198,7 @@ async def delete_account(
     removed = {"search_index": False, "files": False}
 
     try:
-        HybridIndexer(str(tenant.id)).clear_all()
+        HybridIndexer(str(tenant.id)).delete_index()
         removed["search_index"] = True
     except Exception as e:
         print(f"[delete] search index for {tenant.id}: {e}")

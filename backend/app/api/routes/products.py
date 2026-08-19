@@ -77,7 +77,8 @@ async def delete_product(product_id: str, tenant: Tenant = Depends(resolve_admin
     try:
         removed = HybridIndexer(str(tenant.id)).delete_document(product_id)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[products] delete failed for tenant {tenant.id}: {e}")
+        raise HTTPException(status_code=500, detail="Could not complete the deletion.")
     if not removed:
         raise HTTPException(status_code=404, detail="Product not found")
     return {"status": "success", "deleted": product_id}
@@ -97,5 +98,6 @@ async def clear_catalog(
     try:
         count = HybridIndexer(str(tenant.id)).clear_all()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[products] delete failed for tenant {tenant.id}: {e}")
+        raise HTTPException(status_code=500, detail="Could not complete the deletion.")
     return {"status": "success", "deleted": count}

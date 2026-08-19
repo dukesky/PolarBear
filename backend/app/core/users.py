@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from fastapi import Depends, Request
@@ -38,7 +39,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # Never let a mail failure turn into a 500 - the caller must not be able
         # to tell whether the address exists or the mailer is down.
         try:
-            send_password_reset(user.email, token)
+            await asyncio.to_thread(send_password_reset, user.email, token)
         except Exception as e:
             print(f"[auth] password reset email failed for {user.email}: {e}")
 

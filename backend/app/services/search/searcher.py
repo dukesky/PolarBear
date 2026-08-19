@@ -31,7 +31,7 @@ class HybridSearcher:
         try:
             index_bytes = self.storage.read(self.tenant_id, HybridIndexer.FAISS_FILE)
             map_bytes = self.storage.read(self.tenant_id, HybridIndexer.DOC_MAP_FILE)
-            if index_bytes is None or map_bytes is None:
+            if not index_bytes or not map_bytes:
                 return None
             index = faiss.deserialize_index(np.frombuffer(index_bytes, dtype="uint8"))
             doc_ids = pickle.loads(map_bytes)

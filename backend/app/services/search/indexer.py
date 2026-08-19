@@ -50,16 +50,28 @@ class HybridIndexer:
         )
         index.add_documents(all_documents)
 
-        texts = [f"{d.get('title', '')} {d.get('description', '')}" for d in all_documents]
+        self._rebuild_vectors(all_documents)
+
+    def _rebuild_vectors(self, documents: list[dict]) -> None:
+        """Write the vector artifacts for exactly these documents.
+
+        Callers that already know the surviving set must not re-read Meilisearch:
+        its deletes are queued asynchronously, so a re-read can still return a
+        product that is on its way out.
+        """
+        if not documents:
+            self._clear_vectors()
+            cache.invalidate(self.tenant_id)
+            return
+        texts = [f"{d.get('title', '')} {d.get('description', '')}" for d in documents]
         embeddings = np.array(get_model().encode(texts)).astype("float32")
         faiss_index = faiss.IndexFlatL2(embeddings.shape[1])
         faiss_index.add(embeddings)
-
         self.storage.write(
             self.tenant_id, self.FAISS_FILE, faiss.serialize_index(faiss_index).tobytes()
         )
         self.storage.write(
-            self.tenant_id, self.DOC_MAP_FILE, pickle.dumps([d["id"] for d in all_documents])
+            self.tenant_id, self.DOC_MAP_FILE, pickle.dumps([d["id"] for d in documents])
         )
         cache.invalidate(self.tenant_id)
 
@@ -90,11 +102,7 @@ class HybridIndexer:
         # a re-run of the delete or the next upload repairs them. Full atomicity
         # across two stores would need a redesign we have not taken on.
         self.meili_client.index(self.index_name).delete_document(str(product_id))
-        if remaining:
-            self.index_data([])  # re-embeds and rewrites artifacts from what's left; already invalidates the cache
-        else:
-            self._clear_vectors()
-            cache.invalidate(self.tenant_id)
+        self._rebuild_vectors(remaining)
         return True
 
     def clear_all(self) -> int:
@@ -104,6 +112,14 @@ class HybridIndexer:
         self._clear_vectors()
         cache.invalidate(self.tenant_id)
         return count
+
+    def delete_index(self) -> None:
+        """Remove the tenant's index entirely, not just its documents."""
+        try:
+            self.meili_client.delete_index(self.index_name)
+        except meilisearch.errors.MeilisearchApiError as e:
+            if getattr(e, "code", None) != "index_not_found":
+                raise
 
     def _clear_vectors(self) -> None:
         """Empty vector artifacts so a search finds nothing rather than ghosts."""

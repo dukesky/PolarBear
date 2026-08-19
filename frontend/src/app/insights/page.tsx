@@ -228,18 +228,34 @@ function ProductCatalog() {
 
     const removeProduct = async (id: string, title: string) => {
         if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
-        const r = await authFetch(`/products/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        if (r.ok) fetchProducts();
+        try {
+            const r = await authFetch(`/products/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (r.ok) {
+                fetchProducts();
+            } else {
+                alert('Failed to delete the product.');
+            }
+        } catch (e) {
+            alert('Failed to delete the product.');
+        }
     };
 
     const clearCatalog = async () => {
         if (!confirm('Delete every product in your catalog? This cannot be undone.')) return;
-        const r = await authFetch('/products/', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ confirm: 'delete all products' }),
-        });
-        if (r.ok) fetchProducts();
+        try {
+            const r = await authFetch('/products/', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: 'delete all products' }),
+            });
+            if (r.ok) {
+                fetchProducts();
+            } else {
+                alert('Failed to clear the catalog.');
+            }
+        } catch (e) {
+            alert('Failed to clear the catalog.');
+        }
     };
 
     return (

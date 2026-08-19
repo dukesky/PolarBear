@@ -162,6 +162,63 @@ async def test_delete_requires_admin_credentials(registered, monkeypatch):
     assert r.status_code == 403
 
 
+def test_delete_document_does_not_resurrect_via_a_stale_reread(tmp_path, monkeypatch):
+    """Meilisearch deletes are queued: a re-read can still show the doomed doc."""
+    import pickle
+
+    from app.services.search import embedding
+    from app.services.search.indexer import HybridIndexer
+    from app.services.storage import LocalStorage
+    from tests.test_indexer import FakeModel
+
+    monkeypatch.setattr(embedding, "_model", FakeModel())
+
+    class LaggyIndex:
+        """delete_document is accepted but not yet visible to reads."""
+
+        def __init__(self):
+            self.docs = {
+                "1": {"id": "1", "title": "Blue Mug", "description": ""},
+                "2": {"id": "2", "title": "Red Mug", "description": ""},
+            }
+            self.deleted: list = []
+
+        def get_documents(self, params):
+            class R:
+                pass
+
+            r = R()
+            r.results = list(self.docs.values())  # stale on purpose
+            return r
+
+        def update_settings(self, s):
+            pass
+
+        def add_documents(self, docs):
+            for d in docs:
+                self.docs[str(d["id"])] = d
+
+        def delete_document(self, pid):
+            self.deleted.append(str(pid))  # queued, not applied
+
+    class LaggyClient:
+        def __init__(self):
+            self._index = LaggyIndex()
+
+        def index(self, name):
+            return self._index
+
+    client = LaggyClient()
+    idx = HybridIndexer("tenant-a", storage=LocalStorage(str(tmp_path)), meili_client=client)
+
+    assert idx.delete_document("1") is True
+
+    # The vector artifacts must describe the surviving set, not the stale re-read.
+    doc_ids = pickle.loads(idx.storage.read("tenant-a", HybridIndexer.DOC_MAP_FILE))
+    assert doc_ids == ["2"]
+    assert client._index.deleted == ["1"]
+
+
 def test_clear_all_propagates_a_meilisearch_failure(tmp_path, monkeypatch):
     """A delete endpoint must not report success when nothing was deleted."""
     import pytest

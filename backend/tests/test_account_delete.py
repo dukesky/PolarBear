@@ -2,11 +2,16 @@ from sqlalchemy import func, select
 
 
 class NoopIndexer:
+    deleted_indexes: list = []
+
     def __init__(self, tenant_id, storage=None, meili_client=None):
-        pass
+        self.tenant_id = str(tenant_id)
 
     def clear_all(self):
         return 0
+
+    def delete_index(self):
+        NoopIndexer.deleted_indexes.append(self.tenant_id)
 
 
 async def _register(client, email):
@@ -45,6 +50,8 @@ async def test_account_deletion_wipes_one_tenant_and_spares_the_other(registered
 
     r = await client.request("DELETE", "/tenant/account", json={"email": email_a}, headers=auth_a)
     assert r.status_code == 200, r.text
+
+    assert str(tenant_a_id) in NoopIndexer.deleted_indexes
 
     async with async_session_maker() as s:
         tenants_left = (
@@ -173,7 +180,7 @@ async def test_account_deletion_survives_a_broken_search_index(registered, monke
         def __init__(self, tenant_id, storage=None, meili_client=None):
             pass
 
-        def clear_all(self):
+        def delete_index(self):
             raise RuntimeError("meilisearch unreachable")
 
     monkeypatch.setattr(tenant_routes, "HybridIndexer", BrokenIndexer)

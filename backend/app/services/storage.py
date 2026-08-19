@@ -70,7 +70,7 @@ class GCSStorage:
     def delete_tenant(self, tenant_id: str) -> None:
         prefix = f"tenants/{tenant_id}/"
         for bucket in (self.bucket, self.public_bucket):
-            for blob in bucket.list_blobs(prefix=prefix):
+            for blob in list(bucket.list_blobs(prefix=prefix)):
                 blob.delete()
 
 

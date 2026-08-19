@@ -425,17 +425,22 @@ function DangerZone() {
     }
     setBusy(true);
     setError('');
-    const r = await authFetch('/tenant/account', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    if (r.ok) {
-      clearToken();
-      window.location.href = '/login';
-    } else {
-      const d = await r.json().catch(() => ({}));
-      setError(typeof d.detail === 'string' ? d.detail : 'Could not delete the account.');
+    try {
+      const r = await authFetch('/tenant/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (r.ok) {
+        clearToken();
+        window.location.href = '/login';
+      } else {
+        const d = await r.json().catch(() => ({}));
+        setError(typeof d.detail === 'string' ? d.detail : 'Could not delete the account.');
+        setBusy(false);
+      }
+    } catch (e) {
+      setError('Could not reach the server. Check your connection and try again.');
       setBusy(false);
     }
   };

@@ -118,6 +118,12 @@ export default function LoginPage() {
           </button>
         </form>
 
+        <p className="mt-3 text-sm text-center">
+          <a href="/forgot-password" className="text-gray-500 hover:text-indigo-600">
+            Forgot your password?
+          </a>
+        </p>
+
         {googleEnabled && (
           <button
             onClick={handleGoogle}

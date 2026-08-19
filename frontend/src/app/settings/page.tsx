@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { authFetch, useRequireAuth } from '../../lib/api';
+import { authFetch, clearToken, useRequireAuth } from '../../lib/api';
 
 interface KeyInfo {
   key: string | null;
@@ -102,6 +102,7 @@ export default function SettingsPage() {
 
         <EmbedSection />
         <InstallCheck />
+        <DangerZone />
       </div>
     </div>
   );
@@ -401,6 +402,72 @@ function InstallCheck() {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+function DangerZone() {
+  const [email, setEmail] = useState('');
+  const [expected, setExpected] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    authFetch('/users/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setExpected(d.email))
+      .catch(() => {});
+  }, []);
+
+  const remove = async () => {
+    if (!confirm('This permanently deletes your catalog, analytics and account. Continue?')) {
+      return;
+    }
+    setBusy(true);
+    setError('');
+    const r = await authFetch('/tenant/account', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (r.ok) {
+      clearToken();
+      window.location.href = '/login';
+    } else {
+      const d = await r.json().catch(() => ({}));
+      setError(typeof d.detail === 'string' ? d.detail : 'Could not delete the account.');
+      setBusy(false);
+    }
+  };
+
+  const matches = expected !== '' && email.toLowerCase() === expected.toLowerCase();
+
+  return (
+    <div className="mt-6 p-4 border border-red-300 rounded-lg">
+      <h2 className="text-sm font-semibold text-red-700 mb-1">Delete this account</h2>
+      <p className="text-xs text-gray-600 mb-3">
+        This removes your products, search index, images, analytics and API keys
+        immediately and permanently. Your search box will stop working everywhere it is
+        installed. Download anything you need first.
+      </p>
+      <div className="flex gap-2">
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder={expected || 'type your email to confirm'}
+          className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+        <button
+          onClick={remove}
+          disabled={busy || !matches}
+          className={`text-sm font-medium px-4 py-2 rounded-md text-white ${
+            busy || !matches ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
+          }`}
+        >
+          {busy ? 'Deleting…' : 'Delete account'}
+        </button>
+      </div>
+      {error && <div className="mt-3 p-3 rounded bg-red-100 text-red-700 text-sm">{error}</div>}
     </div>
   );
 }

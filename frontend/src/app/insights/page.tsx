@@ -226,6 +226,22 @@ function ProductCatalog() {
         }
     };
 
+    const removeProduct = async (id: string, title: string) => {
+        if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+        const r = await authFetch(`/products/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (r.ok) fetchProducts();
+    };
+
+    const clearCatalog = async () => {
+        if (!confirm('Delete every product in your catalog? This cannot be undone.')) return;
+        const r = await authFetch('/products/', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirm: 'delete all products' }),
+        });
+        if (r.ok) fetchProducts();
+    };
+
     return (
         <div className="mt-10 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
@@ -233,7 +249,12 @@ function ProductCatalog() {
                     <h3 className="text-lg font-semibold text-gray-900">Product Catalog</h3>
                     <p className="text-sm text-gray-500 mt-1">Manage your inventory.</p>
                 </div>
-                <button onClick={fetchProducts} className="text-indigo-600 hover:text-indigo-800 text-sm">Refresh</button>
+                <div>
+                    <button onClick={fetchProducts} className="text-indigo-600 hover:text-indigo-800 text-sm">Refresh</button>
+                    <button onClick={clearCatalog} className="text-sm text-red-600 hover:text-red-800 ml-4">
+                        Clear catalog
+                    </button>
+                </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -262,6 +283,12 @@ function ProductCatalog() {
                                         className="text-indigo-600 hover:text-indigo-900 font-medium"
                                     >
                                         Edit
+                                    </button>
+                                    <button
+                                        onClick={() => removeProduct(String(p.id), p.title)}
+                                        className="text-red-600 hover:text-red-800 ml-3"
+                                    >
+                                        Delete
                                     </button>
                                 </td>
                             </tr>

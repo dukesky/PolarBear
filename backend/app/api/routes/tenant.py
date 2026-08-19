@@ -1,14 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_async_session
 from app.core.tenancy import get_current_tenant
-from app.models import APIKey, Tenant, WidgetPing
+from app.core.users import current_active_user
+from app.models import APIKey, ProductStat, SearchLog, Tenant, User, WidgetPing
 from app.services.keys import reset_key
 from app.services.origins import UNKNOWN, normalize_origin
+from app.services.search.indexer import HybridIndexer
+from app.services.storage import get_storage
 
 router = APIRouter()
 
@@ -166,3 +170,50 @@ async def install_status(
         "verdict": verdict,
         "pings": pings,
     }
+
+
+class AccountDeletion(BaseModel):
+    email: str
+
+
+@router.delete("/account")
+async def delete_account(
+    payload: AccountDeletion,
+    user: User = Depends(current_active_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Destroy this tenant and every trace of its data.
+
+    External resources go first: a half-finished delete that leaves database
+    rows is recoverable, while orphaned indexes and objects are not even
+    discoverable. Every step is guarded - a merchant must be able to leave even
+    when an external service is down.
+    """
+    if payload.email.strip().lower() != user.email.lower():
+        raise HTTPException(
+            status_code=400, detail="Type your own email address to confirm deletion."
+        )
+
+    removed = {"search_index": False, "files": False}
+
+    try:
+        HybridIndexer(str(tenant.id)).clear_all()
+        removed["search_index"] = True
+    except Exception as e:
+        print(f"[delete] search index for {tenant.id}: {e}")
+
+    try:
+        get_storage().delete_tenant(str(tenant.id))
+        removed["files"] = True
+    except Exception as e:
+        print(f"[delete] stored files for {tenant.id}: {e}")
+
+    for model in (WidgetPing, SearchLog, ProductStat, APIKey):
+        await session.execute(sql_delete(model).where(model.tenant_id == tenant.id))
+    await session.execute(sql_delete(Tenant).where(Tenant.id == tenant.id))
+    await session.execute(sql_delete(User).where(User.id == user.id))
+    await session.commit()
+
+    removed["account"] = True
+    return {"status": "deleted", "removed": removed}

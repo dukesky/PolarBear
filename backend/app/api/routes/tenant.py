@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.db import get_async_session
 from app.core.tenancy import get_current_tenant
 from app.core.users import current_active_user
-from app.models import APIKey, ProductStat, SearchLog, Tenant, User, WidgetPing
+from app.models import APIKey, OAuthAccount, ProductStat, SearchLog, Tenant, User, WidgetPing
 from app.services.keys import reset_key
 from app.services.origins import UNKNOWN, normalize_origin
 from app.services.search.indexer import HybridIndexer
@@ -212,6 +212,10 @@ async def delete_account(
     for model in (WidgetPing, SearchLog, ProductStat, APIKey):
         await session.execute(sql_delete(model).where(model.tenant_id == tenant.id))
     await session.execute(sql_delete(Tenant).where(Tenant.id == tenant.id))
+    # Explicit rather than relying on the FK cascade: SQLite (the self-hosted
+    # default) does not enforce ON DELETE CASCADE unless PRAGMA foreign_keys is
+    # on, which would leave a departed merchant's OAuth linkage behind.
+    await session.execute(sql_delete(OAuthAccount).where(OAuthAccount.user_id == user.id))
     await session.execute(sql_delete(User).where(User.id == user.id))
     await session.commit()
 

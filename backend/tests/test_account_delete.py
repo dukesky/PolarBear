@@ -125,3 +125,72 @@ async def test_account_deletion_survives_a_broken_storage_backend(registered, mo
             await s.execute(select(func.count()).select_from(User).where(User.email == email_addr))
         ).scalar_one()
         assert left == 0
+
+
+async def test_account_deletion_removes_oauth_links(registered, monkeypatch):
+    """SQLite does not enforce the FK cascade, so the row must go explicitly."""
+    client, token, email_addr = registered
+    from app.api.routes import tenant as tenant_routes
+
+    monkeypatch.setattr(tenant_routes, "HybridIndexer", NoopIndexer)
+
+    from app.core.db import async_session_maker
+    from app.models import OAuthAccount, User
+
+    async with async_session_maker() as s:
+        user = (await s.execute(select(User).where(User.email == email_addr))).unique().scalar_one()
+        s.add(
+            OAuthAccount(
+                user_id=user.id,
+                oauth_name="google",
+                access_token="tok",
+                account_id="google-123",
+                account_email=email_addr,
+            )
+        )
+        await s.commit()
+
+    r = await client.request(
+        "DELETE",
+        "/tenant/account",
+        json={"email": email_addr},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+
+    async with async_session_maker() as s:
+        left = (
+            await s.execute(select(func.count()).select_from(OAuthAccount))
+        ).scalar_one()
+        assert left == 0
+
+
+async def test_account_deletion_survives_a_broken_search_index(registered, monkeypatch):
+    client, token, email_addr = registered
+    from app.api.routes import tenant as tenant_routes
+
+    class BrokenIndexer:
+        def __init__(self, tenant_id, storage=None, meili_client=None):
+            pass
+
+        def clear_all(self):
+            raise RuntimeError("meilisearch unreachable")
+
+    monkeypatch.setattr(tenant_routes, "HybridIndexer", BrokenIndexer)
+
+    r = await client.request(
+        "DELETE",
+        "/tenant/account",
+        json={"email": email_addr},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+
+    from app.core.db import async_session_maker
+    from app.models import User
+
+    async with async_session_maker() as s:
+        left = (
+            await s.execute(select(func.count()).select_from(User).where(User.email == email_addr))
+        ).scalar_one()
+        assert left == 0

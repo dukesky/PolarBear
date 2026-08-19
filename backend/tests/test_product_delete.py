@@ -160,3 +160,43 @@ async def test_delete_requires_admin_credentials(registered, monkeypatch):
     assert (await client.delete("/products/abc")).status_code == 401
     r = await client.delete("/products/abc", headers={"X-PolarBear-Key": keys["search"]["key"]})
     assert r.status_code == 403
+
+
+def test_clear_all_propagates_a_meilisearch_failure(tmp_path, monkeypatch):
+    """A delete endpoint must not report success when nothing was deleted."""
+    import pytest
+
+    from app.services.search import embedding
+    from app.services.search.indexer import HybridIndexer
+    from app.services.storage import LocalStorage
+    from tests.test_indexer import FakeModel
+
+    monkeypatch.setattr(embedding, "_model", FakeModel())
+
+    class BrokenIndex:
+        def get_documents(self, params):
+            class R:
+                pass
+
+            r = R()
+            r.results = [{"id": "1", "title": "Blue Mug"}]
+            return r
+
+        def update_settings(self, s):
+            pass
+
+        def add_documents(self, docs):
+            pass
+
+        def delete_all_documents(self):
+            raise RuntimeError("meilisearch unreachable")
+
+    class BrokenClient:
+        def index(self, name):
+            return BrokenIndex()
+
+    idx = HybridIndexer(
+        "tenant-a", storage=LocalStorage(str(tmp_path)), meili_client=BrokenClient()
+    )
+    with pytest.raises(RuntimeError, match="meilisearch unreachable"):
+        idx.clear_all()

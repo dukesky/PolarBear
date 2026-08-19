@@ -85,21 +85,22 @@ class HybridIndexer:
         if len(remaining) == len(existing):
             return False
 
+        # Meilisearch first, then the vector rebuild. If the rebuild fails the
+        # route surfaces a 500 and the artifacts briefly describe the old set;
+        # a re-run of the delete or the next upload repairs them. Full atomicity
+        # across two stores would need a redesign we have not taken on.
         self.meili_client.index(self.index_name).delete_document(str(product_id))
         if remaining:
-            self.index_data([])  # re-embeds and rewrites artifacts from what's left
+            self.index_data([])  # re-embeds and rewrites artifacts from what's left; already invalidates the cache
         else:
             self._clear_vectors()
-        cache.invalidate(self.tenant_id)
+            cache.invalidate(self.tenant_id)
         return True
 
     def clear_all(self) -> int:
         """Remove every product and the vector artifacts. Returns the count removed."""
         count = len(self._fetch_all())
-        try:
-            self.meili_client.index(self.index_name).delete_all_documents()
-        except Exception as e:
-            print(f"Failed clearing Meilisearch documents for {self.tenant_id}: {e}")
+        self.meili_client.index(self.index_name).delete_all_documents()
         self._clear_vectors()
         cache.invalidate(self.tenant_id)
         return count

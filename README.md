@@ -151,7 +151,7 @@ We welcome contributions from the community! Whether it's fixing bugs, improving
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License — see [LICENSE](LICENSE) for the full text.
 
 ## 📬 Contact
 

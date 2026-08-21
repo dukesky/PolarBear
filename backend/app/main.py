@@ -26,11 +26,14 @@ public_dir = os.path.join(settings.DATA_DIR, "public")
 os.makedirs(public_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=public_dir), name="static")
 
-# CORS
+# The widget runs on merchant domains, so origins stay open. Credentials are
+# off because PolarBear authenticates with Bearer tokens and the
+# X-PolarBear-Key header, never cookies - and "*" with credentials is the
+# pairing that actually creates a hole.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

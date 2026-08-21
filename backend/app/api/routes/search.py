@@ -20,7 +20,9 @@ async def search(
     tenant_id: uuid.UUID = Depends(resolve_search_tenant),
 ):
     """Hybrid search scoped to the tenant resolved from the search key or JWT."""
-    check_rate_limit(str(tenant_id))
+    # Searches get their own bucket: a page mount's install-ping must not
+    # spend the allowance a shopper's keystrokes need.
+    check_rate_limit(f"{tenant_id}:search")
     searcher = HybridSearcher(str(tenant_id))
     try:
         results = searcher.search(q, limit)

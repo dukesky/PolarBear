@@ -27,10 +27,15 @@ class Settings:
     SMTP_FROM: str = os.getenv("SMTP_FROM", "polarbear@localhost")
     SMTP_TLS: bool = os.getenv("SMTP_TLS", "true").lower() == "true"
 
-    # Requests per minute per tenant on the endpoints a public search key can
-    # reach. 0 disables the limit, which is what a self-hoster behind their own
-    # proxy usually wants.
-    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
+    # Requests per minute per tenant, counted separately for searches and for
+    # analytics events. 0 disables the limit, which is what a self-hoster
+    # behind their own proxy usually wants.
+    #
+    # 600, not the 120 the design named: the widget searches as you type on a
+    # 250ms debounce, so one shopper typing one query costs several requests.
+    # At 120 a modestly busy store throttles its own customers, and a shopper
+    # who sees "No results" does not file a bug report - they leave.
+    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "600"))
 
 
 settings = Settings()

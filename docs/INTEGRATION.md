@@ -354,7 +354,7 @@ Key environment variables (see `backend/.env.example` for all of them):
 | `DATABASE_URL` | SQLite by default; Postgres recommended in production |
 | `INDEX_STORAGE` / `GCS_BUCKET` | Where vector indexes persist (`local` or `gcs`) |
 | `GOOGLE_OAUTH_CLIENT_ID/SECRET` | Optional “Sign in with Google” |
-| `RATE_LIMIT_PER_MINUTE` | Requests per minute per merchant on the public search endpoints; `0` disables it |
+| `RATE_LIMIT_PER_MINUTE` | Requests per minute per store on the public search endpoints (default 600). Searches and click/page-view events are counted separately, so visits never use up the allowance your shoppers' searches need. The default is generous because the search box searches as you type — one typed query is several requests. `0` disables it. Counted per backend instance: if you run two, a store can make up to twice this number per minute. |
 
 The widget artifact ships pre-built in the repo (`backend/app/widget/`), so
 the backend needs no Node toolchain. To hack on the widget itself:

@@ -24,8 +24,12 @@ class TrackEvent(BaseModel):
 @router.post("/track")
 async def track_event(event: TrackEvent, tenant_id: uuid.UUID = Depends(resolve_search_tenant)):
     """Track a click/order. Auth: public search key, admin key, or JWT —
-    callable from merchant sites (write-only, tenant-scoped)."""
-    check_rate_limit(str(tenant_id))
+    callable from merchant sites (write-only, tenant-scoped).
+
+    Events share one bucket with install-ping, separate from /search: the
+    widget pings on every page mount, and raw pageviews must not use up the
+    allowance a shopper's searches need."""
+    check_rate_limit(f"{tenant_id}:events")
     if event.type not in ("click", "order"):
         raise HTTPException(status_code=400, detail="Invalid event type")
     await track_product_event(tenant_id, event.type, event.product_id, event.title)
@@ -38,7 +42,7 @@ async def install_ping(
 ):
     """The widget calls this once when it mounts, so a merchant can confirm the
     install before any shopper has searched."""
-    check_rate_limit(str(tenant_id))
+    check_rate_limit(f"{tenant_id}:events")
     await record_ping(tenant_id, origin_from_request(request), "load")
     return {"status": "ok"}
 

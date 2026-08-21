@@ -204,6 +204,28 @@ curl -X POST "https://YOUR-SERVER/analytics/track" \
   -d '{"type": "click", "product_id": "1", "title": "Winter Jacket"}'
 ```
 
+### Two replies worth handling
+
+| Status | What happened | What to do |
+|---|---|---|
+| `429` | The store has made too many requests this minute. A `Retry-After` header gives the number of seconds until the allowance resets. | Wait that long, then retry. If you search as the user types, debounce ~250ms so one query isn't a request per keystroke. Searches and click/page-view events have separate allowances. |
+| `403` | The store has switched on **Only allow this key on my website** in Settings, and this request came from a browser on a different address. | Calls from a server or an app are never affected — they send no browser origin, and that is deliberate. From a web page, serve it on the store's own domain (its subdomains count too), or ask the store owner to turn the setting off. |
+
+### Download the catalog
+
+The `pb_admin_` key can export everything the store has uploaded:
+
+```bash
+curl "https://YOUR-SERVER/products/export?format=csv" \
+  -H "X-PolarBear-Key: pb_admin_..." -o products.csv
+```
+
+`format=csv` (the default) uses PolarBear's own column names, so the file can be
+re-uploaded unchanged. `format=json` returns
+`{"products": [...], "count": N, "exported_at": "..."}`. A store that has never
+uploaded anything gets an empty file, not an error. This needs the admin key —
+the public search key gets a `403`.
+
 ## Use PolarBear in a mobile app
 
 The embeddable widget is web-only — it renders into a web page. Native apps
@@ -307,6 +329,15 @@ catalog. Keep uploads on your own server or in the dashboard.
   timeout on the first call.
 - **Fail quietly.** If search errors, show an empty state rather than an error
   dialog — the widget follows the same rule.
+- **Handle `429`.** A busy store can exhaust its per-minute allowance. The
+  response carries a `Retry-After` header in seconds — wait that long before
+  trying again, and keep the debounce above so one query isn't a request per
+  keystroke.
+- **`403` should never reach an app.** The store's **Only allow this key on my
+  website** setting only blocks browsers on the wrong address; an app sends no
+  browser origin and is deliberately exempt. If you do see a `403`, you are
+  calling from a web page (a WebView counts when it sends an origin) — use the
+  store's own domain, or ask the owner to turn the setting off.
 
 **How the self-check reports app integrations**
 
@@ -339,6 +370,14 @@ That's everything — search engine, database, API and dashboard. Open
 SECRET_KEY=$(openssl rand -hex 32) docker compose up -d
 ```
 
+Only the dashboard (`3000`) and the API (`8000`) are published to the outside
+world. The search engine (`7700`) and the database (`5432`) are bound to
+`127.0.0.1`, so they are reachable from the machine itself but not from the
+internet — they ship with well-known default passwords, and the backend talks
+to them over Docker's own network either way. If you deliberately need one of
+them from another machine, put it behind your own firewall or tunnel rather
+than removing the `127.0.0.1:` prefix in `docker-compose.yml`.
+
 Developing on PolarBear itself? From `infrastructure/`, run
 `docker compose up -d meilisearch postgres` for the infrastructure. Then, from
 the repository root (a new terminal), start the backend (`cd backend &&
@@ -366,6 +405,8 @@ the backend needs no Node toolchain. To hack on the widget itself:
 |---|---|
 | No search box appears | The `<div id="polarbear-search">` line is missing, or `data-container` doesn't match any element. Check the browser console for a `[PolarBear]` warning. |
 | Box appears, no results | Wrong or reset `data-key` — copy a fresh snippet from Settings. Products uploaded? |
+| Box appears, no results on one address but fine on another | You switched on **Only allow this key on my website** in Settings, and that address isn't the one saved there. Subdomains of the saved address (`shop.yourstore.com` under `yourstore.com`) are allowed; a different domain is not. Update the saved address, or untick the box. Settings warns you about this when it can see where your box is loading. |
+| Search stops for a minute on a busy day | The per-minute allowance for your store was used up; requests answer `429` until the minute rolls over. Raise `RATE_LIMIT_PER_MINUTE` if you run PolarBear yourself. |
 | Results not clickable | Add a `url` column to your CSV and re-upload. Only `http(s)` URLs are accepted (anything else is ignored for safety). |
 | “No results” for queries that should match | Check **Insights → Missed Opportunities**; enrich product `description`s — the AI matches meaning, and one-word descriptions give it little to work with. |
 | Widget looks unstyled/odd | Another script may be removing the container. The widget itself is Shadow-DOM isolated; verify the container div survives page load. |

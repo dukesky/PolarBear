@@ -1,0 +1,37 @@
+# The Dockerfile does `COPY . .`, so anything left in a working copy would be
+# baked into the image. Two things must never be: a developer's real secrets,
+# and a local database full of somebody's data.
+
+# Secrets and local configuration
+.env
+.env.*
+
+# Local databases (test_polarbear.db, polarbear.db, ...)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Locally persisted indexes and uploaded images
+data/
+
+# Python build and cache artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs — the image installs its own dependencies
+.venv/
+venv/
+env/
+
+# Version control and editor noise
+.git/
+.gitignore
+.DS_Store
+*.swp

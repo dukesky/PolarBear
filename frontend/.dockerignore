@@ -1,0 +1,26 @@
+# The builder stage installs node_modules for alpine and then does `COPY . .`.
+# Without this file the host's node_modules lands on top of it and `next build`
+# dies on a platform-specific SWC binary — in any checkout where someone ran
+# `npm install` locally, which is every developer's.
+node_modules/
+
+# Build output — the image produces its own
+.next/
+out/
+build/
+
+# Secrets and local configuration
+.env
+.env.*
+
+# Stray local state
+*.db
+data/
+
+# Version control, logs and editor noise
+.git/
+.gitignore
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+*.swp

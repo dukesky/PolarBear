@@ -4,7 +4,12 @@ services:
     environment:
       - MEILI_MASTER_KEY=masterKey
     ports:
-      - '7700:7700'
+      # Bound to localhost on purpose. The backend reaches Meilisearch over the
+      # compose network and does not need this published at all; publishing it
+      # on 0.0.0.0 with the default master key would hand every merchant's
+      # catalog to anyone who found the host. A developer on their own machine
+      # still gets http://localhost:7700.
+      - '127.0.0.1:7700:7700'
     volumes:
       - meili_data:/meili_data
     restart: always
@@ -16,7 +21,10 @@ services:
       - POSTGRES_PASSWORD=polarbear
       - POSTGRES_DB=polarbear
     ports:
-      - '5432:5432'
+      # Localhost only, for the same reason as Meilisearch above: these are the
+      # default credentials, and the backend talks to Postgres over the compose
+      # network regardless.
+      - '127.0.0.1:5432:5432'
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: always

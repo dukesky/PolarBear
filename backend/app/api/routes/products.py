@@ -1,11 +1,16 @@
+import csv
+import io
 import uuid as uuid_mod
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.core.tenancy import resolve_admin_tenant
 from app.models import Tenant
+from app.services.ingestion.mapping import TARGET_FIELDS
 from app.services.search.indexer import HybridIndexer
 from app.services.storage import get_storage
 
@@ -33,6 +38,48 @@ async def list_products(
         return [dict(d) for d in results.results]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/export")
+async def export_products(
+    format: str = "csv", tenant: Tenant = Depends(resolve_admin_tenant)
+):
+    """Download the catalog. The CSV uses PolarBear's own column names, so a
+    merchant can re-upload the file unchanged."""
+    if format not in ("csv", "json"):
+        raise HTTPException(status_code=400, detail="format must be 'csv' or 'json'.")
+
+    indexer = HybridIndexer(str(tenant.id))
+    try:
+        results = indexer.meili_client.index(indexer.index_name).get_documents(
+            {"limit": 10000}
+        )
+        documents = [dict(d) for d in results.results]
+    except Exception as e:
+        print(f"[products] export failed for tenant {tenant.id}: {e}")
+        raise HTTPException(status_code=500, detail="Could not read the catalog.")
+
+    rows = [{field: doc.get(field, "") for field in TARGET_FIELDS} for doc in documents]
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    if format == "json":
+        return {
+            "products": rows,
+            "count": len(rows),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=TARGET_FIELDS)
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="polarbear-products-{stamp}.csv"'
+        },
+    )
 
 
 @router.put("/{product_id}")

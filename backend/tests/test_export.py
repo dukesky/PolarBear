@@ -26,10 +26,11 @@ def index_not_found_error():
 class FakeIndex:
     """Pages the way Meilisearch does, and records what was asked for."""
 
-    def __init__(self, docs, page_size=None, error=None):
+    def __init__(self, docs, page_size=None, error=None, expose_total=True):
         self.docs = docs
         self.page_size = page_size
         self.error = error
+        self.expose_total = expose_total
         self.calls = []
 
     def get_documents(self, params):
@@ -46,15 +47,18 @@ class FakeIndex:
 
         r = R()
         r.results = list(self.docs[offset : offset + limit])
-        r.total = len(self.docs)
+        if self.expose_total:
+            r.total = len(self.docs)
         r.limit = limit
         r.offset = offset
         return r
 
 
 class FakeClient:
-    def __init__(self, docs, expected_index, page_size=None, error=None):
-        self._index = FakeIndex(docs, page_size=page_size, error=error)
+    def __init__(self, docs, expected_index, page_size=None, error=None, expose_total=True):
+        self._index = FakeIndex(
+            docs, page_size=page_size, error=error, expose_total=expose_total
+        )
         self._expected_index = expected_index
         self.requested = []
 
@@ -69,13 +73,17 @@ class FakeClient:
         return self._index
 
 
-def _indexer_factory(docs, captured=None, page_size=None, error=None):
+def _indexer_factory(docs, captured=None, page_size=None, error=None, expose_total=True):
     class StubIndexer:
         def __init__(self, tenant_id, storage=None, meili_client=None):
             self.tenant_id = str(tenant_id)
             self.index_name = f"products_{tenant_id}"
             self.meili_client = FakeClient(
-                docs, self.index_name, page_size=page_size, error=error
+                docs,
+                self.index_name,
+                page_size=page_size,
+                error=error,
+                expose_total=expose_total,
             )
             if captured is not None:
                 captured["client"] = self.meili_client
@@ -270,8 +278,35 @@ async def test_export_refuses_rather_than_truncating_a_huge_catalog(
     monkeypatch.setattr(products, "HybridIndexer", _indexer_factory(docs, page_size=100))
 
     r = await client.get("/products/export", headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 413, r.text
-    assert "support" in r.json()["detail"].lower() or "too large" in r.json()["detail"].lower()
+    # 400, not 413: nothing about the *request* was oversized, and a plain 400
+    # is less likely to be rewritten by an intermediary.
+    assert r.status_code == 400, r.text
+    assert "support" in r.json()["detail"].lower()
+
+
+async def test_a_short_page_without_a_total_does_not_end_the_walk(registered, monkeypatch):
+    """Fail closed. With no `total` to check against, a page shorter than the
+    one requested says nothing about whether the catalog is finished — and
+    guessing that it does is how an export silently truncates."""
+    client, token, _ = registered
+    from app.api.routes import products
+
+    docs = [{"id": f"sku-{i}", "title": f"Product {i}"} for i in range(250)]
+    # Every page comes back short (100 for a requested 1000) and carries no
+    # total. Only an empty page may end the walk.
+    monkeypatch.setattr(
+        products,
+        "HybridIndexer",
+        _indexer_factory(docs, page_size=100, expose_total=False),
+    )
+
+    r = await client.get(
+        "/products/export",
+        params={"format": "json"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["count"] == 250
 
 
 async def test_export_requires_admin_credentials(registered, monkeypatch):

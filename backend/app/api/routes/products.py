@@ -30,11 +30,19 @@ def _index_for(tenant: Tenant):
     return indexer.meili_client.index(indexer.index_name)
 
 
-# One export walks the catalogue a page at a time. The cap is a guard against
-# a single request pinning a worker for minutes, not an expected limit — a
-# catalogue that reaches it gets an error, never a short file.
+# One export walks the catalog a page at a time. A catalog that reaches the cap
+# gets an error, never a short file.
+#
+# The cap is sized by memory, not by policy. This response is built entirely in
+# RAM three times over: `documents`, then `rows` derived from it, then the whole
+# CSV in a StringIO. At a conservative ~1 KB per product that is ~3 KB resident
+# per product, so 50k products peaks somewhere around 150 MB — survivable on a
+# normal worker. The previous 500k would have been over 1.5 GB and OOM'd the
+# worker, taking every co-tenant request on that instance with it, long before
+# the refusal below ever fired. Raising this without streaming the response
+# first would reintroduce exactly that.
 EXPORT_PAGE_SIZE = 1000
-EXPORT_MAX_DOCUMENTS = 500_000
+EXPORT_MAX_DOCUMENTS = 50_000
 
 
 def _fetch_every_document(index) -> list[dict]:
@@ -58,11 +66,15 @@ def _fetch_every_document(index) -> list[dict]:
         total = getattr(page, "total", None)
         if total is not None and offset >= total:
             return documents
-        if len(batch) < EXPORT_PAGE_SIZE:
-            return documents
+        # Deliberately no "short page means the end" shortcut. When `total` is
+        # missing there is nothing to check a short page against, and treating
+        # one as the end fails *open* — a server that returned fewer rows than
+        # asked for mid-catalog would truncate the export silently, which is
+        # the exact bug this function exists to remove. Only an empty page ends
+        # the walk; the cap below bounds it either way.
         if offset >= EXPORT_MAX_DOCUMENTS:
             raise HTTPException(
-                status_code=413,
+                status_code=400,
                 detail=(
                     f"This catalog is larger than {EXPORT_MAX_DOCUMENTS:,} products, "
                     "which is more than one download can handle. Contact support and "

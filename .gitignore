@@ -56,3 +56,6 @@ meili_data/
 *.db
 backend/data/
 data/
+# Git worktrees and SDD scratch
+.worktrees/
+.superpowers/

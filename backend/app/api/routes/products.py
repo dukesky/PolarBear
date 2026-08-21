@@ -4,6 +4,7 @@ import uuid as uuid_mod
 from datetime import datetime, timezone
 from typing import Optional
 
+import meilisearch.errors
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -29,6 +30,47 @@ def _index_for(tenant: Tenant):
     return indexer.meili_client.index(indexer.index_name)
 
 
+# One export walks the catalogue a page at a time. The cap is a guard against
+# a single request pinning a worker for minutes, not an expected limit — a
+# catalogue that reaches it gets an error, never a short file.
+EXPORT_PAGE_SIZE = 1000
+EXPORT_MAX_DOCUMENTS = 500_000
+
+
+def _fetch_every_document(index) -> list[dict]:
+    """Every document in the index, paged.
+
+    A single `get_documents({"limit": 10000})` silently truncated anything
+    larger, which is the one failure this feature cannot have: a merchant
+    downloading their catalogue to leave with it has no way to notice that the
+    file is short.
+    """
+    documents: list[dict] = []
+    offset = 0
+    while True:
+        page = index.get_documents({"limit": EXPORT_PAGE_SIZE, "offset": offset})
+        batch = [dict(d) for d in page.results]
+        if not batch:
+            return documents
+        documents.extend(batch)
+        offset += len(batch)
+
+        total = getattr(page, "total", None)
+        if total is not None and offset >= total:
+            return documents
+        if len(batch) < EXPORT_PAGE_SIZE:
+            return documents
+        if offset >= EXPORT_MAX_DOCUMENTS:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"This catalog is larger than {EXPORT_MAX_DOCUMENTS:,} products, "
+                    "which is more than one download can handle. Contact support and "
+                    "we will get you the full export."
+                ),
+            )
+
+
 @router.get("/")
 async def list_products(
     limit: int = 100, offset: int = 0, tenant: Tenant = Depends(resolve_admin_tenant)
@@ -51,10 +93,18 @@ async def export_products(
 
     indexer = HybridIndexer(str(tenant.id))
     try:
-        results = indexer.meili_client.index(indexer.index_name).get_documents(
-            {"limit": 10000}
+        documents = _fetch_every_document(
+            indexer.meili_client.index(indexer.index_name)
         )
-        documents = [dict(d) for d in results.results]
+    except meilisearch.errors.MeilisearchApiError as e:
+        if getattr(e, "code", None) != "index_not_found":
+            print(f"[products] export failed for tenant {tenant.id}: {e}")
+            raise HTTPException(status_code=500, detail="Could not read the catalog.")
+        # A merchant who has never uploaded anything has no index yet. That is
+        # an empty catalog, not a failure — hand them the headers.
+        documents = []
+    except HTTPException:
+        raise  # a deliberate refusal (e.g. too large) already says what happened
     except Exception as e:
         print(f"[products] export failed for tenant {tenant.id}: {e}")
         raise HTTPException(status_code=500, detail="Could not read the catalog.")

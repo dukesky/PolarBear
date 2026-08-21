@@ -21,7 +21,10 @@ async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 MISSING_COLUMN_SHIM: list[tuple[str, str, str]] = [
     ("tenants", "column_mapping", "TEXT"),
     ("tenants", "website_url", "VARCHAR(255)"),
-    ("tenants", "restrict_key_to_website", "BOOLEAN DEFAULT 0"),
+    # DEFAULT FALSE, not DEFAULT 0: Postgres has no implicit cast from integer
+    # to boolean in a DEFAULT expression and rejects the ALTER outright, while
+    # SQLite accepts either. Both engines accept FALSE.
+    ("tenants", "restrict_key_to_website", "BOOLEAN DEFAULT FALSE"),
 ]
 
 
@@ -42,9 +45,17 @@ def _add_missing_columns(sync_conn) -> None:
             sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
             print(f"[db] added missing column {table}.{column} ({ddl_type})")
         except Exception as e:
-            # Never let a schema-shim race (e.g. two workers starting at
-            # once) or an already-applied ALTER take the app down.
-            print(f"[db] skipped {table}.{column}: {e}")
+            # A schema-shim race (two workers starting at once) is survivable:
+            # the other worker's ALTER already added the column, so a fresh
+            # inspection finds it and there is nothing left to do. Anything
+            # else means this DDL cannot apply to this database — and an app
+            # that starts against a schema every query will fail on is worse
+            # than one that refuses to start, so re-raise.
+            fresh = inspect(sync_conn)
+            if column not in {c["name"] for c in fresh.get_columns(table)}:
+                print(f"[db] cannot add {table}.{column}: {e}")
+                raise
+            print(f"[db] {table}.{column} was added concurrently: {e}")
 
 
 async def create_db_and_tables() -> None:

@@ -21,6 +21,42 @@ async def test_status_is_no_website_then_not_found(registered):
     assert r.json()["verdict"] == "not_found"
 
 
+async def test_a_subdomain_of_the_saved_website_counts_as_installed(registered):
+    """install-status must agree with what the key restriction actually
+    enforces — otherwise Settings warns about a domain that works fine."""
+    client, token, _ = registered
+    auth = {"Authorization": f"Bearer {token}"}
+    await client.put("/tenant/website", json={"website_url": "mystore.com"}, headers=auth)
+    key = await _key(client, token)
+
+    await client.post(
+        "/analytics/install-ping",
+        headers={"X-PolarBear-Key": key, "Origin": "https://shop.mystore.com"},
+    )
+
+    body = (await client.get("/tenant/install-status", headers=auth)).json()
+    assert body["verdict"] == "ok"
+    assert body["web"]["status"] == "ok"
+    assert body["web"]["origin"] == "shop.mystore.com"
+
+
+async def test_an_unrelated_domain_is_still_wrong_domain(registered):
+    client, token, _ = registered
+    auth = {"Authorization": f"Bearer {token}"}
+    await client.put("/tenant/website", json={"website_url": "mystore.com"}, headers=auth)
+    key = await _key(client, token)
+
+    await client.post(
+        "/analytics/install-ping",
+        headers={"X-PolarBear-Key": key, "Origin": "https://notmystore.com"},
+    )
+
+    body = (await client.get("/tenant/install-status", headers=auth)).json()
+    assert body["verdict"] == "wrong_domain"
+    assert body["web"]["status"] == "wrong_domain"
+    assert body["web"]["origin"] == "notmystore.com"
+
+
 async def test_status_ok_after_matching_ping(registered):
     client, token, _ = registered
     auth = {"Authorization": f"Bearer {token}"}

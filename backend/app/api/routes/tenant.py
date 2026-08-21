@@ -10,7 +10,7 @@ from app.core.tenancy import get_current_tenant
 from app.core.users import current_active_user
 from app.models import APIKey, OAuthAccount, ProductStat, SearchLog, Tenant, User, WidgetPing
 from app.services.keys import reset_key
-from app.services.origins import UNKNOWN, normalize_origin
+from app.services.origins import UNKNOWN, normalize_origin, origin_is_the_merchants_own
 from app.services.search.indexer import HybridIndexer
 from app.services.storage import get_storage
 
@@ -120,9 +120,16 @@ async def install_status(
     # does not, and is recorded under the UNKNOWN sentinel. That difference is
     # what lets us report the two integration channels apart.
     loads = [p for p in rows if p.kind == "load" and p.origin != UNKNOWN]
-    # (tenant_id, origin, kind) is unique, so at most one row can match.
+    # Same rule the search-key restriction enforces, so this verdict can never
+    # flag a domain that in fact works — a subdomain of the saved site counts.
     match = next(
-        (p for p in loads if tenant.website_url and p.origin == tenant.website_url), None
+        (
+            p
+            for p in loads
+            if tenant.website_url
+            and origin_is_the_merchants_own(p.origin, tenant.website_url)
+        ),
+        None,
     )
 
     # API integration can be either a search from UNKNOWN or a load from UNKNOWN

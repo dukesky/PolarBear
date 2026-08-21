@@ -31,6 +31,21 @@ def normalize_origin(value: str | None) -> str:
     return host or UNKNOWN
 
 
+def origin_is_the_merchants_own(origin: str, website: str) -> bool:
+    """The bound host itself, or any subdomain of it.
+
+    Storefronts commonly live at shop.mystore.com while the owner types the
+    apex into Settings, and a silent 403 on every shopper search is a brutal
+    way to find that out. The rule is deliberately one-way: binding mystore.com
+    covers shop.mystore.com, but binding shop.mystore.com does not hand access
+    to the apex or to a sibling subdomain.
+
+    Both the search-key restriction and the install-status verdict use this, so
+    Settings can never warn about a domain that in fact works.
+    """
+    return origin == website or origin.endswith("." + website)
+
+
 def origin_from_request(request) -> str:
     """Prefer the CORS Origin header; fall back to the Referer's host."""
     origin = request.headers.get("origin")

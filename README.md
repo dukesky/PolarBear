@@ -112,14 +112,14 @@ Upload `demo-store/products.csv` to your PolarBear account, paste your search ke
     docker compose up -d meilisearch postgres
     ```
 
-4.  **Start Backend**
+4.  **Start Backend** (new terminal, from the repository root)
     ```bash
     cd backend
     poetry install
     poetry run uvicorn app.main:app --reload --port 8000
     ```
 
-5.  **Start Frontend**
+5.  **Start Frontend** (new terminal, from the repository root)
     ```bash
     cd frontend
     npm install

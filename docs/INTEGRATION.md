@@ -339,10 +339,11 @@ That's everything — search engine, database, API and dashboard. Open
 SECRET_KEY=$(openssl rand -hex 32) docker compose up -d
 ```
 
-Developing on PolarBear itself? Run `docker compose up -d meilisearch postgres`
-for the infrastructure and start the backend (`cd backend && poetry install &&
-poetry run uvicorn app.main:app --reload --port 8000`) and frontend
-(`cd frontend && npm install && npm run dev`) yourself.
+Developing on PolarBear itself? From `infrastructure/`, run
+`docker compose up -d meilisearch postgres` for the infrastructure. Then, from
+the repository root (a new terminal), start the backend (`cd backend &&
+poetry install && poetry run uvicorn app.main:app --reload --port 8000`) and
+frontend (`cd frontend && npm install && npm run dev`) yourself.
 
 Key environment variables (see `backend/.env.example` for all of them):
 

@@ -42,7 +42,17 @@ def _add_missing_columns(sync_conn) -> None:
         if column in existing_columns:
             continue
         try:
-            sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
+            # The ALTER runs in its own SAVEPOINT. This whole function runs
+            # inside one transaction, and on Postgres a single failed statement
+            # aborts that transaction outright: every later statement on the
+            # connection — including the reflection query below — would raise
+            # InFailedSqlTransaction instead of doing its job. The savepoint
+            # rolls back just the failed ALTER and leaves the connection usable,
+            # so the except branch can actually inspect and report.
+            with sync_conn.begin_nested():
+                sync_conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
+                )
             print(f"[db] added missing column {table}.{column} ({ddl_type})")
         except Exception as e:
             # A schema-shim race (two workers starting at once) is survivable:

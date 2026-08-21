@@ -93,27 +93,40 @@ Upload `demo-store/products.csv` to your PolarBear account, paste your search ke
     cd PolarBear
     ```
 
-2.  **Start Infrastructure**
+2.  **Start everything**
     ```bash
     cd infrastructure
-    docker-compose up -d
+    docker compose up -d
+    ```
+    That's the whole stack — Meilisearch, Postgres, the API and the dashboard.
+    Open <http://localhost:3000/login> and register.
+
+    > Set `SECRET_KEY` before exposing it to anyone: `SECRET_KEY=$(openssl rand -hex 32) docker compose up -d`
+
+    Prefer to run the services yourself while developing? The three-terminal
+    setup is below.
+
+3.  **Start Infrastructure only (development)**
+    ```bash
+    cd infrastructure
+    docker compose up -d meilisearch postgres
     ```
 
-3.  **Start Backend**
+4.  **Start Backend**
     ```bash
     cd backend
     poetry install
     poetry run uvicorn app.main:app --reload --port 8000
     ```
 
-4.  **Start Frontend**
+5.  **Start Frontend**
     ```bash
     cd frontend
     npm install
     npm run dev
     ```
 
-5.  **Experience PolarBear**
+6.  **Experience PolarBear**
     - **Register**: Go to `http://localhost:3000/login` and create an account.
     - **Upload Data**: Go to `http://localhost:3000/upload` and upload a CSV (e.g., `sample_products.csv`).
     - **Search**: Visit `http://localhost:3000/search` to try the hybrid search.

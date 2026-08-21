@@ -326,23 +326,25 @@ code just points at your server.
 
 ```bash
 git clone https://github.com/dukesky/PolarBear.git
-cd PolarBear
-
-# 1. Infrastructure (Meilisearch + Postgres)
-cd infrastructure && docker-compose up -d && cd ..
-
-# 2. Backend API  (Python 3.11+, poetry)
-cd backend && poetry install
-poetry run uvicorn app.main:app --port 8000 &
-cd ..
-
-# 3. Admin dashboard  (Node 20+)
-cd frontend && npm install && npm run dev
+cd PolarBear/infrastructure
+docker compose up -d
 ```
 
-Then open `http://localhost:3000/login`, register, upload, and copy your
-snippet from Settings. Key environment variables (see
-`backend/.env.example` for all of them):
+That's everything — search engine, database, API and dashboard. Open
+<http://localhost:3000/login> and register.
+
+**Before anyone else can reach it**, set a real secret:
+
+```bash
+SECRET_KEY=$(openssl rand -hex 32) docker compose up -d
+```
+
+Developing on PolarBear itself? Run `docker compose up -d meilisearch postgres`
+for the infrastructure and start the backend (`cd backend && poetry install &&
+poetry run uvicorn app.main:app --reload --port 8000`) and frontend
+(`cd frontend && npm install && npm run dev`) yourself.
+
+Key environment variables (see `backend/.env.example` for all of them):
 
 | Variable | What it does |
 |---|---|
@@ -351,6 +353,7 @@ snippet from Settings. Key environment variables (see
 | `DATABASE_URL` | SQLite by default; Postgres recommended in production |
 | `INDEX_STORAGE` / `GCS_BUCKET` | Where vector indexes persist (`local` or `gcs`) |
 | `GOOGLE_OAUTH_CLIENT_ID/SECRET` | Optional “Sign in with Google” |
+| `RATE_LIMIT_PER_MINUTE` | Requests per minute per merchant on the public search endpoints; `0` disables it |
 
 The widget artifact ships pre-built in the repo (`backend/app/widget/`), so
 the backend needs no Node toolchain. To hack on the widget itself:

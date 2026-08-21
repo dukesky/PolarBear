@@ -21,23 +21,42 @@ services:
       - pg_data:/var/lib/postgresql/data
     restart: always
 
-  # backend:
-  #   build: ./backend
-  #   ports:
-  #     - '8000:8000'
-  #   environment:
-  #     - MEILI_HOST=http://meilisearch:7700
-  #     - MEILI_MASTER_KEY=masterKey
-  #   depends_on:
-  #     - meilisearch
+  backend:
+    build: ../backend
+    ports:
+      - '8000:8000'
+    environment:
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=masterKey
+      - DATABASE_URL=postgresql+asyncpg://polarbear:polarbear@postgres:5432/polarbear
+      # Change this before exposing the stack to anyone.
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+      - INDEX_STORAGE=local
+      - DATA_DIR=/data
+      - PUBLIC_BACKEND_URL=${PUBLIC_BACKEND_URL:-http://localhost:8000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - PORT=8000
+    volumes:
+      - backend_data:/data
+    depends_on:
+      - meilisearch
+      - postgres
+    restart: always
 
-  # frontend:
-  #   build: ./frontend
-  #   ports:
-  #     - '3000:3000'
-  #   depends_on:
-  #     - backend
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # NEXT_PUBLIC_* is inlined at build time, so the API URL must be a build
+        # arg - setting it as a runtime environment variable does nothing.
+        NEXT_PUBLIC_API_URL: ${PUBLIC_BACKEND_URL:-http://localhost:8000}
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+    restart: always
 
 volumes:
   meili_data:
   pg_data:
+  backend_data:

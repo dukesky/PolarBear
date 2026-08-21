@@ -234,6 +234,7 @@ function EmbedSection() {
 
 interface StatusResponse {
   website_url: string | null;
+  restrict_key_to_website?: boolean;
   pings: { origin: string; kind: string; count: number; last_seen: string | null }[];
   web: { status: 'ok' | 'wrong_domain' | 'none'; origin: string | null; last_seen: string | null };
   api: { status: 'active' | 'none'; search_count: number; last_seen: string | null };
@@ -261,6 +262,7 @@ function InstallCheck() {
   const [saved, setSaved] = useState<string | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [checking, setChecking] = useState(false);
+  const [restrict, setRestrict] = useState(false);
 
   const load = () => {
     authFetch('/tenant/install-status')
@@ -270,6 +272,7 @@ function InstallCheck() {
         setStatus(d);
         setSaved(d.website_url);
         setWebsite(d.website_url ?? '');
+        setRestrict(Boolean(d.restrict_key_to_website));
       })
       .catch(() => {});
   };
@@ -281,12 +284,13 @@ function InstallCheck() {
     const r = await authFetch('/tenant/website', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ website_url: website }),
+      body: JSON.stringify({ website_url: website, restrict_key_to_website: restrict }),
     });
     if (r.ok) {
       const d = await r.json();
       setSaved(d.website_url);
       setWebsite(d.website_url ?? '');
+      setRestrict(Boolean(d.restrict_key_to_website));
       load();
     }
   };
@@ -322,6 +326,20 @@ function InstallCheck() {
       <p className="-mt-1 mb-3 text-xs text-gray-500">
         Only using an app or the API? Leave this empty.
       </p>
+
+      <label className="flex items-start gap-2 mb-3 text-xs text-gray-600">
+        <input
+          type="checkbox"
+          checked={restrict}
+          onChange={(e) => setRestrict(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Only allow this key on my website. Blocks other <em>websites</em> from using
+          your search key — app and server-side integrations keep working, because they
+          don&apos;t send a browser origin. Save to apply.
+        </span>
+      </label>
 
       <button
         onClick={check}
@@ -453,7 +471,11 @@ function DangerZone() {
       <p className="text-xs text-gray-600 mb-3">
         This removes your products, search index, images, analytics and API keys
         immediately and permanently. Your search box will stop working everywhere it is
-        installed. Download anything you need first.
+        installed. Download anything you need first —{' '}
+        <a href="/insights" className="text-indigo-600 hover:underline">
+          export your catalog
+        </a>
+        .
       </p>
       <div className="flex gap-2">
         <input

@@ -240,6 +240,27 @@ function ProductCatalog() {
         }
     };
 
+    const exportCatalog = async () => {
+        try {
+            const r = await authFetch('/products/export?format=csv');
+            if (!r.ok) {
+                alert('Could not export the catalog. Please try again.');
+                return;
+            }
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `polarbear-products-${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch {
+            alert('Could not export the catalog. Please try again.');
+        }
+    };
+
     const clearCatalog = async () => {
         if (!confirm('Delete every product in your catalog? This cannot be undone.')) return;
         try {
@@ -267,6 +288,9 @@ function ProductCatalog() {
                 </div>
                 <div>
                     <button onClick={fetchProducts} className="text-indigo-600 hover:text-indigo-800 text-sm">Refresh</button>
+                    <button onClick={exportCatalog} className="text-sm text-indigo-600 hover:text-indigo-800 ml-4">
+                        Export CSV
+                    </button>
                     <button onClick={clearCatalog} className="text-sm text-red-600 hover:text-red-800 ml-4">
                         Clear catalog
                     </button>

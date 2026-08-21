@@ -69,6 +69,7 @@ async def get_snippet(
 
 class WebsiteUpdate(BaseModel):
     website_url: str
+    restrict_key_to_website: bool | None = None
 
 
 @router.put("/website")
@@ -80,9 +81,14 @@ async def set_website(
     """Store the merchant's site as a bare host so ping comparisons are robust."""
     normalized = normalize_origin(payload.website_url)
     tenant.website_url = None if normalized in ("", UNKNOWN) else normalized
+    if payload.restrict_key_to_website is not None:
+        tenant.restrict_key_to_website = payload.restrict_key_to_website
     session.add(tenant)
     await session.commit()
-    return {"website_url": tenant.website_url}
+    return {
+        "website_url": tenant.website_url,
+        "restrict_key_to_website": tenant.restrict_key_to_website,
+    }
 
 
 @router.get("/install-status")
@@ -165,6 +171,7 @@ async def install_status(
 
     return {
         "website_url": tenant.website_url,
+        "restrict_key_to_website": tenant.restrict_key_to_website,
         "web": web,
         "api": api,
         "verdict": verdict,

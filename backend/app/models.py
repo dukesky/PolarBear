@@ -5,7 +5,7 @@ from fastapi_users_db_sqlalchemy import (
     SQLAlchemyBaseOAuthAccountTableUUID,
     SQLAlchemyBaseUserTableUUID,
 )
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -27,6 +27,7 @@ class Tenant(Base):
     owner_user_id: Mapped[uuid.UUID] = mapped_column(unique=True, index=True)
     column_mapping: Mapped[str | None] = mapped_column(Text, default=None)
     website_url: Mapped[str | None] = mapped_column(String(255), default=None)
+    restrict_key_to_website: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class APIKey(Base):

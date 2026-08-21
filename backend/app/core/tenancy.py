@@ -8,6 +8,7 @@ from app.core.db import get_async_session
 from app.core.users import current_active_user, optional_current_user
 from app.models import Tenant, User
 from app.services.keys import resolve_key
+from app.services.origins import UNKNOWN, origin_from_request
 
 
 async def _tenant_for_user(session: AsyncSession, user: User) -> Tenant | None:
@@ -37,6 +38,20 @@ async def resolve_search_tenant(
         api_key = await resolve_key(session, raw)
         if api_key is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
+        tenant = (
+            await session.execute(select(Tenant).where(Tenant.id == api_key.tenant_id))
+        ).scalar_one_or_none()
+        if tenant is not None and tenant.restrict_key_to_website and tenant.website_url:
+            origin = origin_from_request(request)
+            # Only a *mismatched* origin is rejected. Apps and server-side
+            # callers send no Origin at all (recorded as UNKNOWN) and must keep
+            # working - this setting exists to stop other websites, not to
+            # break non-browser integrations.
+            if origin != UNKNOWN and origin != tenant.website_url:
+                raise HTTPException(
+                    status_code=403,
+                    detail="This search key is restricted to the store's own website.",
+                )
         return api_key.tenant_id
     if user is not None:
         tenant = await _tenant_for_user(session, user)

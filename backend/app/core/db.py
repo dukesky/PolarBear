@@ -21,6 +21,7 @@ async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 MISSING_COLUMN_SHIM: list[tuple[str, str, str]] = [
     ("tenants", "column_mapping", "TEXT"),
     ("tenants", "website_url", "VARCHAR(255)"),
+    ("tenants", "restrict_key_to_website", "BOOLEAN DEFAULT 0"),
 ]
 
 

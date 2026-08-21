@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
+from app.core.ratelimit import check_rate_limit
 from app.core.tenancy import resolve_search_tenant
 from app.services.analytics_db import log_search
 from app.services.origins import origin_from_request, record_ping
@@ -19,6 +20,7 @@ async def search(
     tenant_id: uuid.UUID = Depends(resolve_search_tenant),
 ):
     """Hybrid search scoped to the tenant resolved from the search key or JWT."""
+    check_rate_limit(str(tenant_id))
     searcher = HybridSearcher(str(tenant_id))
     try:
         results = searcher.search(q, limit)

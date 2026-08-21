@@ -27,5 +27,10 @@ class Settings:
     SMTP_FROM: str = os.getenv("SMTP_FROM", "polarbear@localhost")
     SMTP_TLS: bool = os.getenv("SMTP_TLS", "true").lower() == "true"
 
+    # Requests per minute per tenant on the endpoints a public search key can
+    # reach. 0 disables the limit, which is what a self-hoster behind their own
+    # proxy usually wants.
+    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
+
 
 settings = Settings()

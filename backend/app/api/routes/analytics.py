@@ -6,6 +6,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_async_session
+from app.core.ratelimit import check_rate_limit
 from app.core.tenancy import get_current_tenant, resolve_search_tenant
 from app.models import ProductStat, SearchLog, Tenant
 from app.services.analytics_db import track_product_event
@@ -24,6 +25,7 @@ class TrackEvent(BaseModel):
 async def track_event(event: TrackEvent, tenant_id: uuid.UUID = Depends(resolve_search_tenant)):
     """Track a click/order. Auth: public search key, admin key, or JWT —
     callable from merchant sites (write-only, tenant-scoped)."""
+    check_rate_limit(str(tenant_id))
     if event.type not in ("click", "order"):
         raise HTTPException(status_code=400, detail="Invalid event type")
     await track_product_event(tenant_id, event.type, event.product_id, event.title)
@@ -36,6 +38,7 @@ async def install_ping(
 ):
     """The widget calls this once when it mounts, so a merchant can confirm the
     install before any shopper has searched."""
+    check_rate_limit(str(tenant_id))
     await record_ping(tenant_id, origin_from_request(request), "load")
     return {"status": "ok"}
 

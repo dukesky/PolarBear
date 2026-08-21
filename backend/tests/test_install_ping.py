@@ -11,6 +11,17 @@ def test_normalize_origin_strips_scheme_www_port_and_path():
     assert normalize_origin("") == "unknown"
 
 
+def test_normalize_origin_treats_the_literal_null_as_no_origin():
+    """Browsers send `Origin: null` from sandboxed iframes, file:// pages,
+    data:/about:blank documents and mobile WebViews. That is an absent origin,
+    not a website called "null"."""
+    from app.services.origins import UNKNOWN, normalize_origin
+
+    assert normalize_origin("null") == UNKNOWN
+    assert normalize_origin("NULL") == UNKNOWN
+    assert normalize_origin("  null  ") == UNKNOWN
+
+
 async def test_install_ping_records_and_dedupes(registered):
     client, token, _ = registered
     auth = {"Authorization": f"Bearer {token}"}

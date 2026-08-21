@@ -85,6 +85,69 @@ async def test_restriction_without_a_website_does_not_block(registered, monkeypa
     assert r.status_code == 200
 
 
+async def test_restriction_allows_a_subdomain_of_the_saved_website(registered, monkeypatch):
+    """Storefronts live at shop.mystore.com while owners type the apex."""
+    client, token, _ = registered
+    _stub_searcher(monkeypatch)
+    auth = {"Authorization": f"Bearer {token}"}
+    await client.put(
+        "/tenant/website",
+        json={"website_url": "mystore.com", "restrict_key_to_website": True},
+        headers=auth,
+    )
+    key = await _key(client, token)
+
+    r = await client.get(
+        "/search/",
+        params={"q": "mug", "key": key},
+        headers={"Origin": "https://shop.mystore.com"},
+    )
+    assert r.status_code == 200
+
+
+async def test_restriction_does_not_widen_from_a_subdomain_to_the_apex(registered, monkeypatch):
+    """A merchant who deliberately bound shop.mystore.com keeps the apex out —
+    and a lookalike like notmystore.com must never squeak past the suffix test."""
+    client, token, _ = registered
+    _stub_searcher(monkeypatch)
+    auth = {"Authorization": f"Bearer {token}"}
+    await client.put(
+        "/tenant/website",
+        json={"website_url": "shop.mystore.com", "restrict_key_to_website": True},
+        headers=auth,
+    )
+    key = await _key(client, token)
+
+    apex = await client.get(
+        "/search/", params={"q": "mug", "key": key}, headers={"Origin": "https://mystore.com"}
+    )
+    assert apex.status_code == 403
+
+    lookalike = await client.get(
+        "/search/",
+        params={"q": "mug", "key": key},
+        headers={"Origin": "https://evilshop.mystore.com"},
+    )
+    assert lookalike.status_code == 403
+
+
+async def test_restriction_allows_a_null_origin(registered, monkeypatch):
+    """Sandboxed iframes and WebViews send `Origin: null` — the very channels
+    this setting promises not to break."""
+    client, token, _ = registered
+    _stub_searcher(monkeypatch)
+    auth = {"Authorization": f"Bearer {token}"}
+    await client.put(
+        "/tenant/website",
+        json={"website_url": "mystore.com", "restrict_key_to_website": True},
+        headers=auth,
+    )
+    key = await _key(client, token)
+
+    r = await client.get("/search/", params={"q": "mug", "key": key}, headers={"Origin": "null"})
+    assert r.status_code == 200
+
+
 async def test_install_status_reports_the_flag(registered):
     client, token, _ = registered
     auth = {"Authorization": f"Bearer {token}"}

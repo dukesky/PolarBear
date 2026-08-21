@@ -7,8 +7,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_async_session
 from app.core.users import current_active_user, optional_current_user
 from app.models import Tenant, User
-from app.services.keys import resolve_key
+from app.services.keys import resolve_key, resolve_key_with_tenant
 from app.services.origins import UNKNOWN, origin_from_request
+
+
+def _origin_is_the_merchants_own(origin: str, website: str) -> bool:
+    """The bound host itself, or any subdomain of it.
+
+    Storefronts commonly live at shop.mystore.com while the owner types the
+    apex into Settings, and a silent 403 on every shopper search is a brutal
+    way to learn that. The rule is deliberately one-way: binding mystore.com
+    covers shop.mystore.com, but binding shop.mystore.com does not hand access
+    to the apex or to a sibling subdomain.
+    """
+    return origin == website or origin.endswith("." + website)
 
 
 async def _tenant_for_user(session: AsyncSession, user: User) -> Tenant | None:
@@ -35,19 +47,18 @@ async def resolve_search_tenant(
     """Tenant for /search: public search key (X-PolarBear-Key header or ?key=) or JWT."""
     raw = request.headers.get("X-PolarBear-Key") or request.query_params.get("key")
     if raw:
-        api_key = await resolve_key(session, raw)
+        api_key, tenant = await resolve_key_with_tenant(session, raw)
         if api_key is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
-        tenant = (
-            await session.execute(select(Tenant).where(Tenant.id == api_key.tenant_id))
-        ).scalar_one_or_none()
         if tenant is not None and tenant.restrict_key_to_website and tenant.website_url:
             origin = origin_from_request(request)
             # Only a *mismatched* origin is rejected. Apps and server-side
             # callers send no Origin at all (recorded as UNKNOWN) and must keep
             # working - this setting exists to stop other websites, not to
             # break non-browser integrations.
-            if origin != UNKNOWN and origin != tenant.website_url:
+            if origin != UNKNOWN and not _origin_is_the_merchants_own(
+                origin, tenant.website_url
+            ):
                 raise HTTPException(
                     status_code=403,
                     detail="This search key is restricted to the store's own website.",

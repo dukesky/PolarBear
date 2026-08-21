@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import APIKey
+from app.models import APIKey, Tenant
 
 KEY_PREFIXES = {"search": "pb_search_", "admin": "pb_admin_"}
 
@@ -44,3 +44,25 @@ async def resolve_key(session: AsyncSession, plaintext: str) -> APIKey | None:
     return (
         await session.execute(select(APIKey).where(APIKey.key_hash == hash_key(plaintext)))
     ).scalar_one_or_none()
+
+
+async def resolve_key_with_tenant(
+    session: AsyncSession, plaintext: str
+) -> tuple[APIKey | None, Tenant | None]:
+    """The key and its tenant in one round-trip.
+
+    /search runs this on every shopper keystroke, so the two lookups it needs
+    are joined rather than issued back to back. Deliberately an outer join: a
+    key whose tenant row has gone missing still resolves to a key, exactly as
+    two separate queries would have.
+    """
+    row = (
+        await session.execute(
+            select(APIKey, Tenant)
+            .outerjoin(Tenant, Tenant.id == APIKey.tenant_id)
+            .where(APIKey.key_hash == hash_key(plaintext))
+        )
+    ).first()
+    if row is None:
+        return None, None
+    return row[0], row[1]

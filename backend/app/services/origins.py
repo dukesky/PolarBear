@@ -17,6 +17,12 @@ def normalize_origin(value: str | None) -> str:
     if not value:
         return UNKNOWN
     raw = str(value).strip()
+    # Browsers send the literal `Origin: null` from sandboxed iframes,
+    # file:// pages, data:/about:blank documents and mobile WebViews. That is
+    # an absent origin, not a site named "null", and treating it as a real
+    # host would 403 exactly the integrations we promise to keep working.
+    if raw.lower() == "null":
+        return UNKNOWN
     if "//" not in raw:
         raw = "//" + raw
     host = (urlparse(raw).hostname or "").lower()

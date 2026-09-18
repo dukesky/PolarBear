@@ -1,0 +1,26 @@
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    environment:
+      - MEILI_MASTER_KEY=__MEILI_MASTER_KEY__
+      - MEILI_ENV=production
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili_data:/meili_data
+    restart: always
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=polarbear
+      - POSTGRES_PASSWORD=__POSTGRES_PASSWORD__
+      - POSTGRES_DB=polarbear
+    command: postgres -c shared_buffers=32MB -c max_connections=40
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: always
+volumes:
+  meili_data:
+  pg_data:

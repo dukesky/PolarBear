@@ -15,7 +15,9 @@
 #   Otherwise the restart would break production, so the script refuses.
 #   It prints the exact scope list it will apply and waits for a typed `yes`.
 #   After: VM RUNNING, scopes as printed, internal IP unchanged, both containers
-#   running and answering, then the N4 production checks.
+#   running and answering, then the N4 production checks. Since 35, the boot runs the
+#   secret-free vm/startup-script.sh (it only re-asserts compose.yml root:root 0600 and runs
+#   `docker compose up -d`; it no longer writes compose.yml). This reboot checks that it ran.
 #
 # ROLLS BACK
 #   Recovery (recover_vm) is armed just before the stop. On ANY exit before
@@ -85,7 +87,7 @@ sed 's/^/    /' <<< "$cur_scopes" >&2
 if ! grep -qxF "$RO" <<< "$cur_scopes" && grep -qxF "$RW" <<< "$cur_scopes"; then
   log "change: VM already has $RW — no restart needed"
   is_dry_run || verify_production "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  exit 0
+  finish
 fi
 grep -qxF "$RO" <<< "$cur_scopes" || die "expected $RO among the current scopes; refusing to guess"
 
@@ -144,6 +146,22 @@ post_start_checks() {
     log "check: [OK] the metadata server on the VM reports $RW"
   else
     log "check: [FAIL] the metadata server on the VM does not report $RW"; failed=1
+  fi
+
+  # After 35 the boot runs the secret-free startup-script; this reboot is the proof that it works.
+  local meta_sha repo_sha
+  meta_sha=$(gc compute instances describe "$VM" --zone "$ZONE" --format=json 2>/dev/null |
+    python3 -c 'import json,sys,hashlib; m={i["key"]:i["value"] for i in json.load(sys.stdin)["metadata"].get("items",[])}; print(hashlib.sha256(m.get("startup-script","").encode()).hexdigest())' 2>/dev/null || true)
+  repo_sha=$(shasum -a 256 "$HERE/vm/startup-script.sh" | awk '{print $1}')
+  if [[ -n "$meta_sha" && "$meta_sha" == "$repo_sha" ]]; then
+    if [[ "$(vm_ssh "sudo stat -c '%U:%G %a' /opt/polarbear/compose.yml" 2>/dev/null)" == "root:root 600" ]] &&
+       [[ "$(vm_ssh "sudo journalctl -b -t polarbear-startup --no-pager | grep -c 'docker compose up -d done'" 2>/dev/null)" -ge 1 ]]; then
+      log "check: [OK] the secret-free startup-script ran on this boot and compose.yml is root:root 600"
+    else
+      log "check: [FAIL] the secret-free startup-script did not complete on this boot (see: sudo journalctl -b -t polarbear-startup)"; failed=1
+    fi
+  else
+    log "check: [WARN] the startup-script metadata is not vm/startup-script.sh (has 35 run?); boot behaviour not verified"
   fi
 
   verify_production "$since" || failed=1
@@ -207,7 +225,7 @@ if is_dry_run; then
   log "          both containers ready (up to ${CONTAINER_WAIT_SECONDS}s), metadata server reports $RW, and the N4 checks."
   log "(dry run) on any failure from the stop onwards, recover_vm would start the VM (3 tries) and report."
   log "DRY RUN complete: nothing was changed"
-  exit 0
+  finish
 fi
 
 # ---------------------------------------------------------------- verify
@@ -215,10 +233,11 @@ log "after: VM started; verifying"
 if post_start_checks; then
   disarm_recovery
   log "DONE: $VM has $RW, internal IP $VM_INTERNAL_IP unchanged, new external IP $NEW_EXT_IP, production checks pass"
-  exit 0
+  finish
 fi
 disarm_recovery   # the VM is running; recovery would only repeat these same checks
 alarm "N6 FAILED — VM IS RUNNING BUT CHECKS FAIL (see [FAIL] lines above)" \
   "Restore service first: docs/operations/backup-restore.md ('Checking Production After a Restore', then section C if needed)." \
   "Pre-change snapshot: $PRE_CHANGE_SNAPSHOT"
 exit 1
+finish

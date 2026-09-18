@@ -98,7 +98,13 @@ alarm() {
 # functions use `run` as well, so a dry run cannot mutate through them either way.
 _RECOVERY=""
 _CLEANUP=""
+_DONE=0
+# finish: the ONLY way a script declares success. Bash 3.2 can abort a script with a
+# runtime parse/expansion error ("bad substitution") and still report exit code 0. So an
+# exit 0 that did not come through finish() is treated as a failure (see _on_exit).
+finish() { _DONE=1; exit 0; }
 add_cleanup() { _CLEANUP="$_CLEANUP $1"; }
+keep_path()   { _CLEANUP=$(printf '%s' "$_CLEANUP" | tr ' ' '\n' | { grep -vxF -- "$1" || true; } | tr '\n' ' '); }  # un-register
 arm_recovery() {
   if is_dry_run; then log "(dry run) would arm recovery: $1"; return 0; fi
   _RECOVERY=$1
@@ -110,6 +116,10 @@ _on_exit() {
   local rc=$? fn p
   trap - EXIT INT TERM
   set +e
+  if [[ "$rc" == 0 && "$_DONE" != 1 ]]; then
+    log "ERROR: the script stopped before reaching its end, but bash reported success; treating it as a FAILURE"
+    rc=1
+  fi
   if [[ -n "$_RECOVERY" ]]; then
     fn=$_RECOVERY; _RECOVERY=""
     [[ "$rc" == 0 ]] && rc=1

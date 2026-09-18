@@ -97,7 +97,7 @@ restore_rules() {
     alarm "FIREWALL RESTORE INCOMPLETE — check production search NOW" \
       "Restored:${ok:- none}" ${bad#|} \
       "Finish by hand:" ${manual#|} \
-      "Then check: bash -c 'source $HERE/lib/common.sh; source $HERE/lib/verify-production.sh; verify_production'"
+      "Then check: bash -c 'source $HERE/lib/common.sh; source $HERE/lib/verify-production.sh; verify_production && finish'"
   fi
 }
 
@@ -139,7 +139,7 @@ done
 
 if is_dry_run; then
   log "DRY RUN complete: nothing was changed (open ports above are expected before the change)"
-  exit 0
+  finish
 fi
 if [[ "$open" == 1 ]]; then
   log "FAIL: a database port is still reachable from the internet. Look for another rule admitting it:"
@@ -147,3 +147,4 @@ if [[ "$open" == 1 ]]; then
   exit 1
 fi
 log "DONE: 5432 and 7700 only admit $RUN_SUBNET_RANGE; production checks pass"
+finish

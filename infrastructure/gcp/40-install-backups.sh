@@ -17,7 +17,8 @@
 #       ONE line in root's crontab (09:17 UTC daily). Runs it once and lists the
 #       two objects it uploaded (set SKIP_FIRST_RUN=1 on a re-run to skip that).
 #   compose.yml  /opt/polarbear/compose.yml becomes root:root 0600. It holds the
-#       Postgres password and Meilisearch master key, and was world-readable.
+#       Postgres password and Meilisearch master key, and was world-readable. Since 35, the
+#       secret-free startup-script also enforces this on every boot, so here it is normally a check.
 #       Ownership and mode only. The contents are never read by this script or changed.
 #
 # VERIFIES
@@ -312,8 +313,9 @@ else
   fi
 fi
 
-if is_dry_run; then log "DRY RUN complete: nothing was changed"; exit 0; fi
+if is_dry_run; then log "DRY RUN complete: nothing was changed"; finish; fi
 if [[ "$failed" != 0 ]]; then log "SOME CHECKS FAILED — see [FAIL] lines above"; exit 1; fi
 completed "first backup run"
 disarm_recovery
 log "DONE: R1, R2, R6 in place; backup installed, cron set, first run uploaded both objects"
+finish

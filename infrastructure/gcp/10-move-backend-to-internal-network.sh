@@ -215,7 +215,7 @@ rollback() {
       "Do this by hand now:" \
       "  gcloud run services update-traffic $RUN_SERVICE --region $RUN_REGION --project $PROJECT --to-revisions $START_REV=100" \
       "  gcloud run services describe $RUN_SERVICE --region $RUN_REGION --project $PROJECT --format='value(status.traffic)'" \
-      "Then re-check: bash -c 'source $HERE/lib/common.sh; source $HERE/lib/verify-production.sh; verify_production'"
+      "Then re-check: bash -c 'source $HERE/lib/common.sh; source $HERE/lib/verify-production.sh; verify_production && finish'"
   fi
 }
 
@@ -246,7 +246,7 @@ if is_dry_run; then
   log "after: (dry run) running the N4 checks against CURRENT production as a baseline"
   verify_production || log "baseline checks failed — production is unhealthy BEFORE any change"
   log "DRY RUN complete: nothing was changed"
-  exit 0
+  finish
 fi
 
 # ---------------------------------------------------------------- env check
@@ -289,3 +289,4 @@ if ! verify_production; then
 fi
 disarm_recovery
 log "DONE: $RUN_SERVICE reaches Postgres and Meilisearch at $VM_INTERNAL_IP (revision $new_rev)"
+finish

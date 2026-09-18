@@ -31,14 +31,42 @@ depends on it.
 This page never contains a password or key. When a step needs one, it reads
 it from where it already lives:
 
-- **Postgres password and Meilisearch master key:** `/opt/polarbear/compose.yml` on the VM,
-  `root:root 0600`. Only root can read it, so use `sudo` for `docker compose` commands.
-- **Also, today:** the VM's instance metadata key `startup-script`. It rewrites
-  `compose.yml` on every boot, so the same values are embedded in it.
-- **The same values as the backend sees them:** the env vars of the Cloud Run service
-  `polarbear-backend` (`DATABASE_URL`, `MEILI_MASTER_KEY`, and so on).
+- **Secret Manager** (project `polarbear-dev-479000`) is the source of truth:
 
-Don't paste either into a terminal, a doc, or a chat.
+  | Secret | Holds | Used by |
+  |---|---|---|
+  | `polarbear-postgres-password` | the `polarbear` database user's password | compose.yml on the VM; rebuilds |
+  | `polarbear-meili-master-key` | the Meilisearch master key | compose.yml on the VM; Cloud Run `MEILI_MASTER_KEY` |
+  | `polarbear-database-url` | the backend's full `postgresql+asyncpg://…@10.138.0.2:5432/polarbear` URL | Cloud Run `DATABASE_URL` |
+  | `polarbear-smtp-password` | the Gmail app password (created by the owner) | Cloud Run `SMTP_PASSWORD` |
+
+  Cloud Run references **pinned version numbers**, never `latest`, so a new version
+  only takes effect when you re-pin it. The versions in service carry the alias
+  **`in-use`** (set by script 35).
+- **On the VM:** `/opt/polarbear/compose.yml`, `root:root 0600`. Only root can read it,
+  so use `sudo` for `docker compose` commands.
+- **Not in the startup-script any more.** Since script 35 the VM's `startup-script`
+  metadata is `infrastructure/gcp/vm/startup-script.sh`. It holds no secrets and **never
+  writes compose.yml**. It installs Docker if missing, re-asserts compose.yml's
+  owner and mode, and runs `docker compose up -d`. If compose.yml is missing it
+  stops and points here (section D). Never put a secret back into instance metadata:
+  any process on the VM can read metadata without authentication.
+
+To see which secret and version each backend variable uses, **without printing any
+value**:
+
+```bash
+gcloud run services describe polarbear-backend --region us-central1 --project polarbear-dev-479000 --format=json |
+  python3 -c 'import json,sys
+for e in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env",[]):
+    r = e.get("valueFrom",{}).get("secretKeyRef")
+    print(e["name"], "->", "secret %s version %s" % (r["name"], r["key"]) if r else "(literal, value not shown)")'
+```
+
+**Never print a secret to look at it.** Don't `cat` compose.yml, don't
+`describe` a service's env as YAML, don't `echo` a variable holding a secret.
+To check whether two values match, compare hashes. Values move between machines
+only through pipes, never on a command line.
 
 ---
 
@@ -362,6 +390,7 @@ gcloud compute instances create polarbear-services \
   --network default --subnet default \
   --private-network-ip polarbear-services-internal \
   --tags postgres-server,meilisearch-server \
+  --metadata-from-file startup-script=infrastructure/gcp/vm/startup-script.sh \
   --service-account 399780699896-compute@developer.gserviceaccount.com \
   --scopes https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/pubsub,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/trace.append
 ```
@@ -371,12 +400,20 @@ so the firewall rules (defined per network) cover it.
 `--private-network-ip polarbear-services-internal` gives it back `10.138.0.2`,
 which is the address the backend uses. The tags put it back behind the same
 firewall rules. `devstorage.read_write` lets the nightly backup upload again.
+The startup-script is the secret-free one from the repo. Run it from the repo root.
 
 ### After C1 or C2
 
 1. Wait about a minute, then **on the VM**: `sudo docker ps`.
    **Check:** both `polarbear-postgres-1` and `polarbear-meilisearch-1` are `Up`.
-   They restart on their own (`restart: always`).
+   They restart on their own (`restart: always`), and the startup-script runs
+   `docker compose up -d` on boot.
+1b. **If the snapshot is older than the last secret rotation**, the disk
+   comes back with the OLD Postgres password and Meilisearch master key, both in
+   compose.yml and inside the Postgres data. The backend, pinned to the new secrets
+   in Secret Manager, will fail to connect. Fix it by rotating onto fresh values:
+   `./infrastructure/gcp/35-rotate-datastore-secrets.sh` (section E). The
+   pre-rotation snapshot is `polarbear-services-pre-rotation-<date>`.
 2. Move the snapshot schedule to the new disk, or the new disk is not
    protected:
    ```bash
@@ -392,6 +429,80 @@ firewall rules. `devstorage.read_write` lets the nightly backup upload again.
 
 ---
 
+## D. Rebuild compose.yml on a Fresh VM
+
+Use this when a VM has no `/opt/polarbear/compose.yml`, for example a brand-new VM
+built from a plain image instead of a snapshot. The startup-script refuses to start
+anything without it and logs `ERROR: /opt/polarbear/compose.yml is missing`.
+
+The file is rendered from the repo's `infrastructure/gcp/vm/compose.template.yml`
+(compose.yml with `__POSTGRES_PASSWORD__` and `__MEILI_MASTER_KEY__` placeholders)
+and the `in-use` versions in Secret Manager. The values travel from Secret Manager to the VM
+through a pipe only.
+
+From the repo root on the Mac:
+
+```bash
+# 1. Put the helper and the template on the VM
+gcloud compute scp infrastructure/gcp/vm/datastore-secrets.sh infrastructure/gcp/vm/compose.template.yml   polarbear-services:/tmp/ --zone us-west1-b --project polarbear-dev-479000
+gcloud compute ssh polarbear-services --zone us-west1-b --project polarbear-dev-479000 --command   'sudo mkdir -p /opt/polarbear &&
+   sudo install -o root -g root -m 0700 /tmp/datastore-secrets.sh /opt/polarbear/datastore-secrets.sh &&
+   sudo install -o root -g root -m 0644 /tmp/compose.template.yml /opt/polarbear/compose.template.yml'
+
+# 2. Render compose.yml: secret values go Secret Manager -> pipe -> the VM's stdin
+{ gcloud secrets versions access in-use --secret polarbear-postgres-password --project polarbear-dev-479000; echo
+  gcloud secrets versions access in-use --secret polarbear-meili-master-key  --project polarbear-dev-479000; echo
+} | gcloud compute ssh polarbear-services --zone us-west1-b --project polarbear-dev-479000 --command   'sudo /opt/polarbear/datastore-secrets.sh render /opt/polarbear/compose.template.yml'
+
+# 3. Start the containers
+gcloud compute ssh polarbear-services --zone us-west1-b --project polarbear-dev-479000 --command   'cd /opt/polarbear && sudo docker compose up -d'
+```
+**Check:** step 2 prints `rendered /opt/polarbear/compose.yml … (root:root 600)`,
+and `sudo docker ps` shows both containers `Up`.
+
+If `in-use` is not accepted as a version name, find the numbers with
+`gcloud secrets describe polarbear-postgres-password --format='value(versionAliases)'`
+and use them instead.
+
+A fresh Postgres volume starts empty, with the password from compose.yml. Now load
+the data: [A](#a-restore-postgres-from-a-dump) for Postgres and
+[B](#b-restore-meilisearch-from-a-dump) for Meilisearch. Then run
+`infrastructure/gcp/40-install-backups.sh` so backups and cron are back, and
+[check production](#checking-production-after-a-restore).
+
+---
+
+## E. Rotate the Secrets Again
+
+Rotate when a value may have been seen by anyone or anything it shouldn't
+have, and otherwise about once a year. **About 2–3 minutes of search downtime.**
+
+```bash
+DRY_RUN=1 ./infrastructure/gcp/35-rotate-datastore-secrets.sh   # read the plan
+./infrastructure/gcp/35-rotate-datastore-secrets.sh
+```
+
+The script snapshots the disk and generates new values that nobody sees. It adds
+a new version of each secret and grants Cloud Run access. It then changes
+compose.yml and the Postgres user on the VM and restarts both containers, and
+**re-pins** Cloud Run to the new version numbers. Finally it proves the old
+values no longer work and moves the `in-use` alias. If anything fails before
+production is verified, it puts everything back and says so.
+
+Done by hand, the same thing is: new version in Secret Manager → change the VM
+(compose.yml + `ALTER USER`) → `docker compose up -d` → `gcloud run services
+update … --update-secrets NAME=secret:NEWVERSION` (re-pin) → verify. Cloud Run
+only picks up a new version when you re-pin it and a new revision starts.
+
+A week later, when you are sure, disable the old versions:
+`gcloud secrets versions disable <N> --secret <name> --project polarbear-dev-479000`.
+
+For the SMTP password: add a new version of `polarbear-smtp-password` yourself,
+then re-run `infrastructure/gcp/50-configure-smtp.sh <sender>`. It re-pins to the
+newest enabled version.
+
+---
+
 ## Checking Production After a Restore
 
 From a checkout of this repo:
@@ -399,7 +510,7 @@ From a checkout of this repo:
 ```bash
 bash -c 'source infrastructure/gcp/lib/common.sh
          source infrastructure/gcp/lib/verify-production.sh
-         verify_production'
+         verify_production && finish'
 ```
 
 This checks `/health` returns 200, that a bogus search key gets 401 (so the
@@ -421,6 +532,13 @@ and each supports `DRY_RUN=1`:
 |---|---|
 | `10-move-backend-to-internal-network.sh` | Cloud Run → VM over the internal IP (Direct VPC egress) |
 | `20-close-public-database-ports.sh` | Postgres/Meilisearch firewall rules limited to the Cloud Run subnet |
+| `35-rotate-datastore-secrets.sh` | Postgres password + Meilisearch key rotated into Secret Manager; secret-free startup-script |
 | `30-enable-vm-storage-write.sh` | VM allowed to write to Cloud Storage (one stop/start) |
 | `40-install-backups.sh` | Snapshot schedule, backup bucket, index-bucket versioning, backup script and cron |
+| `50-configure-smtp.sh` | Password-reset email through Gmail SMTP (password from Secret Manager) |
 | `vm/backup.sh` | The nightly backup itself, installed as `/opt/polarbear/backup.sh` |
+| `vm/datastore-secrets.sh` | VM-side rotation and rebuild helper, installed as `/opt/polarbear/datastore-secrets.sh` |
+| `vm/startup-script.sh` | The VM's secret-free boot script (instance metadata `startup-script`) |
+| `vm/compose.template.yml` | compose.yml without its two secret values (section D) |
+
+The run order was 10 → 20 → 35 → 30 → 40, then 50.

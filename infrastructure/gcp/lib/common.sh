@@ -134,3 +134,93 @@ _on_exit() {
 trap _on_exit EXIT
 trap 'log "interrupted"; exit 130' INT
 trap 'log "terminated"; exit 143' TERM
+
+# ------------------------------------------------------------------ backend env values (literal OR secret ref)
+# Since script 35, DATABASE_URL and MEILI_MASTER_KEY are secret references, not literals. Any check
+# that needs something INSIDE such a value (e.g. the host) must go through these helpers, never
+# parse the service JSON's "value" field directly. That returns nothing for a secret ref, and
+# earlier code turned that into "host=None".
+
+# backend_env_value NAME JSON_FILE: the value of env var NAME in a Cloud Run service JSON
+# (spec.template.spec) or revision JSON (spec). A literal is used as is. A secretKeyRef must be
+# PINNED to a version number; that exact version is read with `gcloud secrets versions access
+# --out-file` (raw bytes, 0600 temp file, removed at once). The value goes to STDOUT for a pipe or
+# $(...) ONLY: the function refuses to run when stdout is a terminal. It fails loudly (non-zero,
+# naming the problem, never the value) if NAME is absent, unpinned (e.g. `latest`), or unreadable.
+backend_env_value() {
+  local name=$1 json=$2 ref s v f
+  if [[ -t 1 ]]; then log "BUG: backend_env_value would print $name to a terminal; refusing"; return 2; fi
+  ref=$(python3 - "$json" "$name" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+spec = d["spec"]["template"]["spec"] if "template" in d.get("spec", {}) else d["spec"]
+env = {e["name"]: e for e in spec["containers"][0].get("env", [])}
+e = env.get(sys.argv[2])
+if e is None: print("absent")
+elif "value" in e: print("literal")
+else:
+    r = (e.get("valueFrom") or {}).get("secretKeyRef") or {}
+    print("secret %s %s" % (r.get("name", "?"), r.get("key", "?")))
+PY
+) || { log "ERROR: cannot parse $json for $name"; return 1; }
+  case "$ref" in
+    absent)  log "ERROR: env var $name is not set on the backend"; return 1 ;;
+    literal)
+      python3 - "$json" "$name" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+spec = d["spec"]["template"]["spec"] if "template" in d.get("spec", {}) else d["spec"]
+sys.stdout.write({e["name"]: e for e in spec["containers"][0]["env"]}[sys.argv[2]]["value"])
+PY
+      ;;
+    secret\ *)
+      read -r _ s v <<< "$ref"
+      if [[ ! "$v" =~ ^[0-9]+$ ]]; then
+        log "ERROR: $name references secret $s version '$v', which is NOT PINNED to a number; refusing (pin it: --update-secrets $name=$s:<N>)"
+        return 1
+      fi
+      f=$(mktemp)
+      if ! gcloud --project "$PROJECT" --quiet secrets versions access "$v" --secret "$s" --out-file "$f" >/dev/null 2>&1 || [[ ! -s "$f" ]]; then
+        rm -f "$f"; log "ERROR: $name references $s:$v, which could not be read (missing, disabled, destroyed, or no access)"; return 1
+      fi
+      cat "$f"; rm -f "$f" ;;
+    *) log "ERROR: unexpected reference for $name: $ref"; return 1 ;;
+  esac
+}
+
+_url_host() {  # stdin: a URL. stdout: its host. Fails on a URL without a host (never prints "None").
+  python3 -c '
+import sys, urllib.parse as up
+h = up.urlsplit(sys.stdin.read().strip()).hostname
+if not h: sys.exit("no host in the URL")
+print(h)'
+}
+
+# backend_datastore_hosts: prints "<DATABASE_URL host> <MEILI_HOST host>" as the SERVING revision
+# uses them. It fails loudly if any value is unreadable, or if the service template (what the next
+# revision would get) disagrees with the serving revision. Only hosts are printed.
+backend_datastore_hosts() {
+  local d rev src db me first="" rc=0
+  d=$(mktemp -d)
+  if ! gcloud --project "$PROJECT" --quiet run services describe "$RUN_SERVICE" --region "$RUN_REGION" --format=json > "$d/svc.json"; then
+    rm -rf "$d"; log "ERROR: cannot describe $RUN_SERVICE"; return 1
+  fi
+  rev=$(python3 -c '
+import json, sys
+t = [x for x in json.load(open(sys.argv[1]))["status"].get("traffic", []) if x.get("percent")]
+print(max(t, key=lambda x: x["percent"])["revisionName"] if t else "")' "$d/svc.json")
+  if [[ -z "$rev" ]] || ! gcloud --project "$PROJECT" --quiet run revisions describe "$rev" --region "$RUN_REGION" --format=json > "$d/rev.json"; then
+    rm -rf "$d"; log "ERROR: cannot read the serving revision '$rev'"; return 1
+  fi
+  for src in rev svc; do
+    db=$(backend_env_value DATABASE_URL "$d/$src.json" | _url_host) || { log "ERROR: DATABASE_URL host unreadable ($src)"; rc=1; break; }
+    me=$(backend_env_value MEILI_HOST "$d/$src.json" | _url_host) || { log "ERROR: MEILI_HOST host unreadable ($src)"; rc=1; break; }
+    if [[ -z "$first" ]]; then first="$db $me"
+    elif [[ "$first" != "$db $me" ]]; then
+      log "ERROR: serving revision $rev uses hosts '$first' but the service template has '$db $me'"; rc=1
+    fi
+  done
+  rm -rf "$d"
+  [[ "$rc" == 0 ]] || return 1
+  echo "$first"
+}

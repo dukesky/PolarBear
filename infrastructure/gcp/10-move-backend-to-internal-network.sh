@@ -116,44 +116,40 @@ for e in sorted(env, key=lambda e: e["name"]):
 PY
 }
 
-# Writes the planned change to stdout as JSON: hosts now, whether each var needs
-# repointing, and the network settings now. Never includes a value.
-plan_json() {
-  python3 - "$1" "$VM_INTERNAL_IP" <<'PY'
-import json, sys, urllib.parse as up
-svc, ip = json.load(open(sys.argv[1])), sys.argv[2]
-env = {e["name"]: e for e in svc["spec"]["template"]["spec"]["containers"][0].get("env", [])}
-ann = svc["spec"]["template"]["metadata"].get("annotations", {})
-out = {"vars": {}, "network": ann.get("run.googleapis.com/network-interfaces", ""),
-       "egress": ann.get("run.googleapis.com/vpc-access-egress", "")}
-for name in ("DATABASE_URL", "MEILI_HOST"):
-    e = env.get(name)
-    if e is None or "value" not in e:
-        sys.exit(f"{name} is missing or is a secret reference; this script only repoints plain values")
-    host = up.urlsplit(e["value"]).hostname
-    out["vars"][name] = {"host": host, "change": host != ip}
-print(json.dumps(out))
+# Prints the network settings now: "<network-interfaces JSON or -> <egress or ->". Never a value.
+# (Hosts come from lib/common.sh:backend_datastore_hosts, which handles literal AND secret-ref values.)
+network_now() {
+  python3 - "$1" <<'PY'
+import json, sys
+ann = json.load(open(sys.argv[1]))["spec"]["template"]["metadata"].get("annotations", {})
+print(ann.get("run.googleapis.com/network-interfaces", "") or "-", ann.get("run.googleapis.com/vpc-access-egress", "") or "-")
 PY
 }
 
-# Writes a gcloud --flags-file with the two repointed values. Only the host changes.
+# Writes a gcloud --flags-file repointing the LITERAL vars named in $3 ("DATABASE_URL MEILI_HOST").
+# Only the host changes. (Callers never pass a secret-ref var: the plan refuses that case.)
 write_flags_file() {
-  python3 - "$1" "$VM_INTERNAL_IP" "$VPC_NETWORK" "$RUN_SUBNET" > "$2" <<'PY'
+  python3 - "$1" "$VM_INTERNAL_IP" "$VPC_NETWORK" "$RUN_SUBNET" "$3" > "$2" <<'PY'
 import json, sys, urllib.parse as up
-svc, ip, net, subnet = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3], sys.argv[4]
+svc, ip, net, subnet, names = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5].split()
 env = {e["name"]: e["value"] for e in svc["spec"]["template"]["spec"]["containers"][0]["env"] if "value" in e}
 def repoint(v):
     p = up.urlsplit(v)
     userinfo, at, hostport = p.netloc.rpartition("@")
     port = f":{p.port}" if p.port else ""
     return up.urlunsplit(p._replace(netloc=f"{userinfo}{at}{ip}{port}"))
-new = {k: repoint(env[k]) for k in ("DATABASE_URL", "MEILI_HOST")}
+new = {k: repoint(env[k]) for k in names}
 for k in new:
     assert up.urlsplit(new[k]).hostname == ip and up.urlsplit(new[k]).port == up.urlsplit(env[k]).port
-print(json.dumps({"--network": net, "--subnet": subnet,
-                  "--vpc-egress": "private-ranges-only", "--update-env-vars": new}))
+flags = {"--network": net, "--subnet": subnet, "--vpc-egress": "private-ranges-only"}
+if new: flags["--update-env-vars"] = new
+print(json.dumps(flags))
 PY
   chmod 600 "$2"
+}
+
+env_kind_10() {  # literal | secret | absent (never a value)
+  python3 -c 'import json,sys; e={x["name"]:x for x in json.load(open(sys.argv[1]))["spec"]["template"]["spec"]["containers"][0].get("env",[])}.get(sys.argv[2]); print("absent" if e is None else ("literal" if "value" in e else "secret"))' "$1" "$2"
 }
 
 # ---------------------------------------------------------------- before
@@ -166,12 +162,17 @@ env_hashes "$TMP/before.json" > "$TMP/before.hashes"
 log "before: env var names and SHA-256 (first 16 hex shown):"
 awk '{printf "    %-20s %s\n", $1, substr($2,1,16)}' "$TMP/before.hashes" >&2
 
-plan=$(plan_json "$TMP/before.json") || die "cannot plan the change"
-read -r need_db need_meili cur_net cur_egress db_host meili_host < <(python3 -c '
-import json,sys; p=json.loads(sys.argv[1]); v=p["vars"]
-print(int(v["DATABASE_URL"]["change"]), int(v["MEILI_HOST"]["change"]),
-      p["network"] or "-", p["egress"] or "-", v["DATABASE_URL"]["host"], v["MEILI_HOST"]["host"])' "$plan")
-log "before: DATABASE_URL host=$db_host  MEILI_HOST host=$meili_host"
+hosts=$(backend_datastore_hosts) || die "cannot determine which hosts the backend uses (see the error above)"
+read -r db_host meili_host <<< "$hosts"
+read -r cur_net cur_egress <<< "$(network_now "$TMP/before.json")"
+need_db=0; need_meili=0; to_repoint=""
+if [[ "$db_host" != "$VM_INTERNAL_IP" ]]; then need_db=1; to_repoint="DATABASE_URL"; fi
+if [[ "$meili_host" != "$VM_INTERNAL_IP" ]]; then need_meili=1; to_repoint="${to_repoint:+$to_repoint }MEILI_HOST"; fi
+for v in $to_repoint; do
+  [[ "$(env_kind_10 "$TMP/before.json" "$v")" == literal ]] ||
+    die "$v needs repointing but is a secret reference; add a secret version with the new host and re-pin it (runbook section E). This script only repoints literal values"
+done
+log "before: DATABASE_URL host=$db_host ($(env_kind_10 "$TMP/before.json" DATABASE_URL))  MEILI_HOST host=$meili_host ($(env_kind_10 "$TMP/before.json" MEILI_HOST))"
 log "before: network-interfaces=$cur_net  vpc-access-egress=$cur_egress"
 
 net_ok=0
@@ -224,13 +225,14 @@ if [[ "$need_db" == 0 && "$need_meili" == 0 && "$net_ok" == 1 ]]; then
   log "change: already on $VPC_NETWORK/$RUN_SUBNET with both hosts at $VM_INTERNAL_IP — nothing to update"
   CHANGED=0
 else
-  log "change: DATABASE_URL host $db_host -> $VM_INTERNAL_IP; MEILI_HOST host $meili_host -> $VM_INTERNAL_IP"
+  log "change: repoint [${to_repoint:-none}] to $VM_INTERNAL_IP; network ${cur_egress} -> $VPC_NETWORK/$RUN_SUBNET private-ranges-only"
   flags="$TMP/flags.json"
-  display="gcloud run services update $RUN_SERVICE --region $RUN_REGION --project $PROJECT --flags-file=<0600 temp file: --network=$VPC_NETWORK --subnet=$RUN_SUBNET --vpc-egress=private-ranges-only --update-env-vars DATABASE_URL=<redacted, host=$VM_INTERNAL_IP>,MEILI_HOST=<redacted, host=$VM_INTERNAL_IP>>"
+  shown=""; for v in $to_repoint; do shown="${shown:+$shown,}$v=<redacted, host=$VM_INTERNAL_IP>"; done
+  display="gcloud run services update $RUN_SERVICE --region $RUN_REGION --project $PROJECT --flags-file=<0600 temp file: --network=$VPC_NETWORK --subnet=$RUN_SUBNET --vpc-egress=private-ranges-only${shown:+ --update-env-vars $shown}>"
   if is_dry_run; then
     run_shown_as "$display" true
   else
-    write_flags_file "$TMP/before.json" "$flags"
+    write_flags_file "$TMP/before.json" "$flags" "$to_repoint"
     # From here on, ANY exit that is not the success at the bottom rolls back.
     arm_recovery rollback
     run_shown_as "$display" gc run services update "$RUN_SERVICE" --region "$RUN_REGION" --flags-file "$flags"
@@ -273,8 +275,7 @@ if [[ "$changed" != "${expected:-none}" ]]; then
   log "FAIL: unexpected env change"
   exit 1
 fi
-plan_after=$(plan_json "$TMP/after.json")
-if ! python3 -c 'import json,sys; v=json.loads(sys.argv[1])["vars"]; sys.exit(0 if not v["DATABASE_URL"]["change"] and not v["MEILI_HOST"]["change"] else 1)' "$plan_after"; then
+if [[ "$(backend_datastore_hosts)" != "$VM_INTERNAL_IP $VM_INTERNAL_IP" ]]; then
   log "FAIL: hosts are not $VM_INTERNAL_IP after the update"
   exit 1
 fi

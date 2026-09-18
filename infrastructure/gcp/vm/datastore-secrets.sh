@@ -24,6 +24,8 @@
 #                        the OLD password and accept the NEW one.
 #   count-in-stdin       counts how often the old and the new values appear in stdin (counts only)
 #   finish               shred the backup (after a successful rotation)
+#   check-live           read-only: Meilisearch and Postgres (TCP/scram) accept compose.yml's values
+#   value-hashes         read-only: SHA-256 of compose.yml's Postgres password and Meili key (for hash comparison only)
 #   render TEMPLATE      fresh VM: stdin lines as for apply; writes compose.yml from TEMPLATE
 #                        (refuses to overwrite an existing compose.yml unless FORCE=1)
 #   verify-template TEMPLATE   is TEMPLATE, rendered with the live values, byte-identical to compose.yml?
@@ -192,6 +194,20 @@ for label, n in zip(("old postgres password", "old meili key", "new postgres pas
   finish)
     if [[ -e "$B" ]]; then shred -u "$B" && say "backup $B shredded"; else say "no backup to shred"; fi ;;
 
+  check-live)   # read-only: do both services accept the values in compose.yml right now?
+    CUR_PG=$(get_value "$F" POSTGRES_PASSWORD); CUR_MEILI=$(get_value "$F" MEILI_MASTER_KEY)
+    rc=0
+    c=$(meili_code "$CUR_MEILI" /keys); if [[ "$c" == 200 ]]; then say "PASS Meilisearch accepts the master key in compose.yml"; else say "FAIL Meilisearch with the compose.yml key -> $c"; rc=1; fi
+    if pg_tcp_login "$CUR_PG"; then say "PASS Postgres (TCP, scram) accepts the password in compose.yml"; else say "FAIL Postgres rejects the compose.yml password over TCP"; rc=1; fi
+    exit "$rc" ;;
+
+  value-hashes) # read-only: SHA-256 of compose.yml's two values, for comparison by the caller (never the values)
+    CUR_PG=$(get_value "$F" POSTGRES_PASSWORD) || die "no POSTGRES_PASSWORD in $F"
+    CUR_MEILI=$(get_value "$F" MEILI_MASTER_KEY) || die "no MEILI_MASTER_KEY in $F"
+    [[ -n "$CUR_PG" && -n "$CUR_MEILI" ]] || die "an empty value in $F"
+    printf 'postgres %s\nmeili %s\n' "$(printf '%s' "$CUR_PG" | sha256sum | awk '{print $1}')" \
+      "$(printf '%s' "$CUR_MEILI" | sha256sum | awk '{print $1}')" ;;
+
   render)
     T=${2:?usage: render TEMPLATE}
     [[ ! -e "$F" || "${FORCE:-0}" == 1 ]] || die "$F exists; refusing to overwrite (FORCE=1 to override)"
@@ -208,5 +224,5 @@ for label, n in zip(("old postgres password", "old meili key", "new postgres pas
     else say "template DIFFERS from the live compose.yml (beyond the two secret values)"; rc=1; fi
     shred -u "$tmp"; exit "$rc" ;;
 
-  *) echo "usage: $0 preflight|apply|restore|prove-old-dead|count-in-stdin|finish|render TEMPLATE|verify-template TEMPLATE" >&2; exit 2 ;;
+  *) echo "usage: $0 preflight|apply|restore|prove-old-dead|count-in-stdin|finish|check-live|value-hashes|render TEMPLATE|verify-template TEMPLATE" >&2; exit 2 ;;
 esac

@@ -100,20 +100,16 @@ OLD_META="$PRIV/old-startup-script"
 # ================================================================ S0 preflight
 STEP_NOTE="S0 preflight"
 describe_service_json "$TMP/start.json"
-# (Command substitution, not <(...): bash 3.2 cannot parse a heredoc inside a process substitution.)
-hosts_out=$(python3 - "$TMP/start.json" <<'PY'
-import json, sys, urllib.parse as up
-env = {e["name"]: e for e in json.load(open(sys.argv[1]))["spec"]["template"]["spec"]["containers"][0].get("env", [])}
-db = env.get("DATABASE_URL", {})
-kind = "literal" if "value" in db else "secret"
-dbh = up.urlsplit(db["value"]).hostname if kind == "literal" else "-"
-print(kind, dbh, up.urlsplit(env.get("MEILI_HOST", {}).get("value", "")).hostname)
-PY
-)
-read -r db_kind db_host meili_host <<< "$hosts_out"
 refuse() { if is_dry_run; then log "preflight: [WOULD REFUSE] $* (continuing only because DRY_RUN=1)"; else die "$*"; fi; }
-if [[ "$meili_host" == "$VM_INTERNAL_IP" && ( "$db_kind" == secret || "$db_host" == "$VM_INTERNAL_IP" ) ]]; then
-  log "preflight: [OK] backend uses $VM_INTERNAL_IP (DATABASE_URL is $db_kind)"
+db_kind=$(env_kind "$TMP/start.json" DATABASE_URL)
+# Hosts via lib/common.sh:backend_datastore_hosts: literal OR secret ref (a re-run), serving revision
+# and template must agree, fails loudly on unpinned or unreadable refs. Only hosts are printed.
+if ! hosts=$(backend_datastore_hosts); then
+  refuse "cannot determine which hosts the backend uses (see the error above)"; hosts="unknown unknown"
+fi
+read -r db_host meili_host <<< "$hosts"
+if [[ "$db_host" == "$VM_INTERNAL_IP" && "$meili_host" == "$VM_INTERNAL_IP" ]]; then
+  log "preflight: [OK] backend uses $VM_INTERNAL_IP for both datastores (DATABASE_URL is $db_kind)"
 else refuse "backend is not on $VM_INTERNAL_IP (DATABASE_URL host=$db_host, MEILI_HOST host=$meili_host); run 10 first"; fi
 for rule in $FIREWALL_RULES; do
   r=$(gc compute firewall-rules describe "$rule" --format='value(sourceRanges.list(separator=","))')
@@ -127,18 +123,13 @@ if vm_ssh "sudo bash -s -- preflight" < "$HERE/vm/datastore-secrets.sh" 2>&1 | s
   log "preflight: [OK] VM-side checks"
 else refuse "VM-side preflight failed (see above)"; fi
 
-# The URL parts other than the password come from today's DATABASE_URL, or the defaults on a re-run.
-url_out=$(python3 - "$TMP/start.json" "$PG_USER" "$PG_DB" <<'PY'
-import json, sys, urllib.parse as up
-env = {e["name"]: e for e in json.load(open(sys.argv[1]))["spec"]["template"]["spec"]["containers"][0].get("env", [])}
-db = env.get("DATABASE_URL", {})
-if "value" in db:
-    p = up.urlsplit(db["value"])
-    print(p.scheme, p.username, p.port or 5432, p.path.lstrip("/"))
-else:
-    print("postgresql+asyncpg", sys.argv[2], 5432, sys.argv[3])
-PY
-)
+# The URL parts other than the password come from today's DATABASE_URL, literal or secret ref
+# (resolved in-process by backend_env_value; the password part is never printed or kept).
+url_out=$(backend_env_value DATABASE_URL "$TMP/start.json" | python3 -c '
+import sys, urllib.parse as up
+p = up.urlsplit(sys.stdin.read().strip())
+if not (p.scheme and p.username and p.hostname and p.path.lstrip("/")): sys.exit("DATABASE_URL is missing a scheme, user, host or database")
+print(p.scheme, p.username, p.port or 5432, p.path.lstrip("/"))') || die "cannot read the parts of DATABASE_URL (see above)"
 read -r U_SCHEME U_USER U_PORT U_DB <<< "$url_out"
 log "preflight: new DATABASE_URL will be $U_SCHEME://$U_USER:<new password>@$VM_INTERNAL_IP:$U_PORT/$U_DB"
 [[ "$U_USER" == "$PG_USER" ]] || die "DATABASE_URL user is $U_USER but PG_USER is $PG_USER"

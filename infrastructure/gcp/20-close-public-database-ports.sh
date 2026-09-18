@@ -44,14 +44,17 @@ require gcloud python3 curl
 banner "20: narrow $FIREWALL_RULES to $RUN_SUBNET_RANGE"
 
 # ---------------------------------------------------------------- preflight
+refuse_or_die() { if is_dry_run; then log "preflight: [WOULD REFUSE] $* (continuing only because DRY_RUN=1)"; else die "$*"; fi; }
 range=$(gc compute networks subnets describe "$RUN_SUBNET" --region "$RUN_REGION" --format='value(ipCidrRange)')
 [[ "$range" == "$RUN_SUBNET_RANGE" ]] ||
   die "subnet $RUN_SUBNET in $RUN_REGION is $range, script expects $RUN_SUBNET_RANGE"
 
-hosts=$(gc run services describe "$RUN_SERVICE" --region "$RUN_REGION" --format=json | python3 -c '
-import json, sys, urllib.parse as up
-env = {e["name"]: e.get("value", "") for e in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])}
-print(up.urlsplit(env.get("DATABASE_URL", "")).hostname, up.urlsplit(env.get("MEILI_HOST", "")).hostname)')
+# Hosts come from lib/common.sh:backend_datastore_hosts, which resolves literal OR secret-ref values
+# (DATABASE_URL is a secret ref since script 35) and fails loudly instead of yielding "None".
+if ! hosts=$(backend_datastore_hosts); then
+  refuse_or_die "cannot determine which hosts the backend uses (see the error above); refusing"
+  hosts="unknown unknown"
+fi
 read -r db_host meili_host <<< "$hosts"
 if [[ "$db_host" != "$VM_INTERNAL_IP" || "$meili_host" != "$VM_INTERNAL_IP" ]]; then
   msg="backend still uses DATABASE_URL host=$db_host MEILI_HOST host=$meili_host; run 10-move-backend-to-internal-network.sh first"

@@ -50,6 +50,7 @@ require gcloud python3 curl
 banner "30: give $VM the Cloud Storage read_write scope (stop/start)"
 
 # ---------------------------------------------------------------- preflight
+refuse_or_die() { refuse "$@"; }
 refuse() {
   if is_dry_run; then log "preflight: [WOULD REFUSE] $* (continuing only because DRY_RUN=1)"
   else die "$*"; fi
@@ -63,10 +64,12 @@ if [[ "$a_ip" == "$VM_INTERNAL_IP" && "$a_status" == IN_USE ]]; then
 else
   refuse "internal IP is not reserved as $VM_INTERNAL_ADDRESS_NAME (got '$addr'); a restart could change it"
 fi
-hosts=$(gc run services describe "$RUN_SERVICE" --region "$RUN_REGION" --format=json | python3 -c '
-import json, sys, urllib.parse as up
-env = {e["name"]: e.get("value", "") for e in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])}
-print(up.urlsplit(env.get("DATABASE_URL", "")).hostname, up.urlsplit(env.get("MEILI_HOST", "")).hostname)')
+# Hosts come from lib/common.sh:backend_datastore_hosts, which resolves literal OR secret-ref values
+# (DATABASE_URL is a secret ref since script 35) and fails loudly instead of yielding "None".
+if ! hosts=$(backend_datastore_hosts); then
+  refuse_or_die "cannot determine which hosts the backend uses (see the error above); refusing"
+  hosts="unknown unknown"
+fi
 read -r db_host meili_host <<< "$hosts"
 if [[ "$db_host" == "$VM_INTERNAL_IP" && "$meili_host" == "$VM_INTERNAL_IP" ]]; then
   log "preflight: [OK] backend uses $VM_INTERNAL_IP, so the external IP changing is harmless"
@@ -110,6 +113,61 @@ fi
 # ---------------------------------------------------------------- helpers
 vm_status() { gc compute instances describe "$VM" --zone "$ZONE" --format='value(status)' 2>/dev/null || echo UNKNOWN; }
 
+# The checks that make this reboot the first REAL test of script 35's secret-free startup-script.
+# Every value stays in a pipe or a variable; only OK/FAIL, MATCH/DIFFER are printed.
+# boot_secret_checks MODE: MODE=after (post-boot, all must pass) or baseline (dry run: informational).
+PRE_COMPOSE_SHA=""
+boot_secret_checks() {
+  local mode=$1 bad=0 meta_sha repo_sha sha d
+  meta_sha=$(gc compute instances describe "$VM" --zone "$ZONE" --format=json 2>/dev/null |
+    python3 -c 'import json,sys,hashlib; m={i["key"]:i["value"] for i in json.load(sys.stdin)["metadata"].get("items",[])}; print(hashlib.sha256(m.get("startup-script","").encode()).hexdigest())' 2>/dev/null || true)
+  repo_sha=$(shasum -a 256 "$HERE/vm/startup-script.sh" | awk '{print $1}')
+  if [[ -n "$meta_sha" && "$meta_sha" == "$repo_sha" ]]; then log "check: [OK] startup-script metadata is the secret-free vm/startup-script.sh"
+  else log "check: [FAIL] startup-script metadata is NOT vm/startup-script.sh (run 35 first)"; bad=1; fi
+
+  if [[ "$(vm_ssh "sudo stat -c '%U:%G %a' /opt/polarbear/compose.yml" 2>/dev/null)" == "root:root 600" ]]; then
+    log "check: [OK] compose.yml is root:root 600"
+  else log "check: [FAIL] compose.yml is not root:root 600"; bad=1; fi
+
+  if [[ "$mode" == after ]]; then
+    if [[ "$(vm_ssh "sudo journalctl -b -t polarbear-startup --no-pager | grep -c 'docker compose up -d done'" 2>/dev/null)" -ge 1 ]] 2>/dev/null; then
+      log "check: [OK] the secret-free startup-script ran to completion on THIS boot"
+    else log "check: [FAIL] no 'docker compose up -d done' from polarbear-startup on this boot (sudo journalctl -b -t polarbear-startup)"; bad=1; fi
+    sha=$(vm_ssh "sudo sha256sum /opt/polarbear/compose.yml" 2>/dev/null | awk '{print $1}')
+    if [[ -n "$PRE_COMPOSE_SHA" && "$sha" == "$PRE_COMPOSE_SHA" ]]; then
+      log "check: [OK] compose.yml is byte-identical to before the reboot (nothing regenerated it)"
+    else log "check: [FAIL] compose.yml changed across the reboot, or could not be compared"; bad=1; fi
+  fi
+
+  # The containers must run on exactly what Cloud Run is pinned to. Compared by SHA-256: the VM
+  # returns hashes of compose.yml's values, and the Mac hashes the backend's pinned values in-process
+  # (resolved via backend_env_value). No value is printed or sent anywhere. The repo's helper is
+  # streamed over stdin, so this never depends on which helper version is installed on the VM.
+  local vm_h run_pg run_me
+  d=$(mktemp -d)
+  vm_h=$(vm_ssh "sudo bash -s -- value-hashes" < "$HERE/vm/datastore-secrets.sh" 2>/dev/null) || vm_h=""
+  if gc run services describe "$RUN_SERVICE" --region "$RUN_REGION" --format=json > "$d/svc.json" 2>/dev/null &&
+     run_pg=$(backend_env_value DATABASE_URL "$d/svc.json" | python3 -c 'import sys, hashlib, urllib.parse as up; pw = up.unquote(up.urlsplit(sys.stdin.read().strip()).password or ""); sys.exit("no password in DATABASE_URL") if not pw else print(hashlib.sha256(pw.encode()).hexdigest())') &&
+     run_me=$(backend_env_value MEILI_MASTER_KEY "$d/svc.json" | python3 -c 'import sys, hashlib; v = sys.stdin.read(); sys.exit("empty MEILI_MASTER_KEY") if not v else print(hashlib.sha256(v.encode()).hexdigest())') &&
+     [[ -n "$vm_h" ]]; then
+    if [[ "$vm_h" == "$(printf 'postgres %s\nmeili %s' "$run_pg" "$run_me")" ]]; then
+      log "check: [OK] compose.yml holds exactly the values Cloud Run is pinned to (compared by SHA-256)"
+    else log "check: [FAIL] compose.yml and Cloud Run's pinned secrets DIFFER (compared by SHA-256)"; bad=1; fi
+  else log "check: [FAIL] could not compare compose.yml with Cloud Run's pinned secrets"; bad=1; fi
+  rm -rf "$d"
+
+  if vm_ssh "sudo bash -s -- check-live" < "$HERE/vm/datastore-secrets.sh" 2>&1 | sed 's/^/    /' >&2 && [[ "${PIPESTATUS[0]}" == 0 ]]; then
+    log "check: [OK] Meilisearch and Postgres (TCP/scram) accept those values live"
+  else log "check: [FAIL] a datastore rejects the values in compose.yml"; bad=1; fi
+
+  if [[ "$mode" == baseline ]]; then
+    if [[ "$bad" == 0 ]]; then log "baseline: all boot/secret checks pass on the CURRENT state"
+    else log "baseline: some boot/secret checks fail on the CURRENT state (informational in a dry run)"; fi
+    return 0
+  fi
+  return "$bad"
+}
+
 # Every step is guarded, so this never aborts half way. It prints what it finds
 # and returns non-zero if anything is wrong. Callers run it with `if`.
 post_start_checks() {
@@ -148,21 +206,7 @@ post_start_checks() {
     log "check: [FAIL] the metadata server on the VM does not report $RW"; failed=1
   fi
 
-  # After 35 the boot runs the secret-free startup-script; this reboot is the proof that it works.
-  local meta_sha repo_sha
-  meta_sha=$(gc compute instances describe "$VM" --zone "$ZONE" --format=json 2>/dev/null |
-    python3 -c 'import json,sys,hashlib; m={i["key"]:i["value"] for i in json.load(sys.stdin)["metadata"].get("items",[])}; print(hashlib.sha256(m.get("startup-script","").encode()).hexdigest())' 2>/dev/null || true)
-  repo_sha=$(shasum -a 256 "$HERE/vm/startup-script.sh" | awk '{print $1}')
-  if [[ -n "$meta_sha" && "$meta_sha" == "$repo_sha" ]]; then
-    if [[ "$(vm_ssh "sudo stat -c '%U:%G %a' /opt/polarbear/compose.yml" 2>/dev/null)" == "root:root 600" ]] &&
-       [[ "$(vm_ssh "sudo journalctl -b -t polarbear-startup --no-pager | grep -c 'docker compose up -d done'" 2>/dev/null)" -ge 1 ]]; then
-      log "check: [OK] the secret-free startup-script ran on this boot and compose.yml is root:root 600"
-    else
-      log "check: [FAIL] the secret-free startup-script did not complete on this boot (see: sudo journalctl -b -t polarbear-startup)"; failed=1
-    fi
-  else
-    log "check: [WARN] the startup-script metadata is not vm/startup-script.sh (has 35 run?); boot behaviour not verified"
-  fi
+  boot_secret_checks after || failed=1
 
   verify_production "$since" || failed=1
   return "$failed"
@@ -212,6 +256,8 @@ recover_vm() {
 
 # ---------------------------------------------------------------- change
 since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+PRE_COMPOSE_SHA=$(vm_ssh "sudo sha256sum /opt/polarbear/compose.yml" 2>/dev/null | awk '{print $1}') || PRE_COMPOSE_SHA=""
+[[ -n "$PRE_COMPOSE_SHA" ]] || die "cannot fingerprint compose.yml before the reboot"
 NEW_EXT_IP=""
 # Armed BEFORE the stop: from here, any exit short of verified success runs recover_vm.
 arm_recovery recover_vm
@@ -221,6 +267,8 @@ run gc compute instances set-service-account "$VM" --zone "$ZONE" \
 run gc compute instances start "$VM" --zone "$ZONE"
 
 if is_dry_run; then
+  log "(dry run) baseline of the post-boot secret checks against the CURRENT state (read-only):"
+  boot_secret_checks baseline
   log "(dry run) would then check: VM RUNNING, scopes exactly as planned, internal IP still $VM_INTERNAL_IP,"
   log "          both containers ready (up to ${CONTAINER_WAIT_SECONDS}s), metadata server reports $RW, and the N4 checks."
   log "(dry run) on any failure from the stop onwards, recover_vm would start the VM (3 tries) and report."

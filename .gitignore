@@ -60,3 +60,6 @@ data/
 # Git worktrees and SDD scratch
 .worktrees/
 .superpowers/
+
+# Personal Claude Code settings (permission rules)
+.claude/settings.local.json

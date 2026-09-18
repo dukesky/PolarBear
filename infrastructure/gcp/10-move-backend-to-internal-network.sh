@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# 10 — Move the Cloud Run backend onto the VM's internal IP  (brief steps N2, N3, N4)
+#
+# CHANGES
+#   - Cloud Run service polarbear-backend: Direct VPC egress on network
+#     `default`, subnet `default` (us-central1), egress private-ranges-only.
+#     Direct VPC egress has no standing cost, unlike a Serverless VPC Access connector.
+#   - The host part of DATABASE_URL and MEILI_HOST, from the VM's external IP
+#     to its reserved internal IP (10.138.0.2). Nothing else in either value
+#     changes, and no other env var is touched.
+#   All of it is one `gcloud run services update`, so one new revision. Cloud Run
+#   rolls it out with no downtime.
+#
+# VERIFIES
+#   Before: the internal IP is reserved and IN_USE by the VM, the us-central1
+#   subnet range is what we expect, and a firewall rule already admits that
+#   range to the VM on tcp:5432 and tcp:7700.
+#   After: per-variable SHA-256 of every env var, before vs after. Only
+#   DATABASE_URL and MEILI_HOST may differ, and no variable may appear or
+#   disappear. Then the N4 production checks (lib/verify-production.sh).
+#
+# ROLLS BACK
+#   If the env check or N4 fails: routes 100% of traffic back to the revision
+#   that was serving when the script started, re-runs the checks, and exits
+#   non-zero.
+#
+# SAFE TO RE-RUN: if the service is already on the internal network with both
+# hosts repointed, it skips the update and only re-runs the checks.
+# Values of env vars are never printed, logged or written outside a 0600 temp
+# dir that is deleted on exit.
+#
+# Usage:  DRY_RUN=1 ./10-move-backend-to-internal-network.sh    # show the plan, change nothing
+#         ./10-move-backend-to-internal-network.sh
+set -euo pipefail
+umask 077
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh"
+# shellcheck source=lib/verify-production.sh
+source "$HERE/lib/verify-production.sh"
+
+require gcloud python3 curl
+banner "10: move $RUN_SERVICE onto $VPC_NETWORK/$RUN_SUBNET -> $VM_INTERNAL_IP"
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+# ---------------------------------------------------------------- preflight
+log "preflight: internal address $VM_INTERNAL_ADDRESS_NAME"
+addr=$(gc compute addresses describe "$VM_INTERNAL_ADDRESS_NAME" --region "$REGION" \
+         --format='value(address,addressType,status)') ||
+  die "static internal address $VM_INTERNAL_ADDRESS_NAME not found in $REGION — reserve it first (brief step N1)"
+read -r a_ip a_type a_status <<< "$addr"
+[[ "$a_ip" == "$VM_INTERNAL_IP" && "$a_type" == INTERNAL && "$a_status" == IN_USE ]] ||
+  die "address $VM_INTERNAL_ADDRESS_NAME is '$addr', want '$VM_INTERNAL_IP INTERNAL IN_USE'"
+vm_ip=$(gc compute instances describe "$VM" --zone "$ZONE" --format='value(networkInterfaces[0].networkIP)')
+[[ "$vm_ip" == "$VM_INTERNAL_IP" ]] || die "VM internal IP is $vm_ip, expected $VM_INTERNAL_IP"
+log "preflight: [OK] $VM_INTERNAL_IP is reserved, IN_USE, and is the VM's internal IP"
+
+range=$(gc compute networks subnets describe "$RUN_SUBNET" --region "$RUN_REGION" --format='value(ipCidrRange)')
+[[ "$range" == "$RUN_SUBNET_RANGE" ]] ||
+  die "subnet $RUN_SUBNET in $RUN_REGION is $range, script expects $RUN_SUBNET_RANGE (set RUN_SUBNET_RANGE if that is right)"
+log "preflight: [OK] $RUN_REGION subnet $RUN_SUBNET = $range"
+
+gc compute instances describe "$VM" --zone "$ZONE" --format=json > "$TMP/vm.json"
+gc compute firewall-rules list --format=json > "$TMP/fw.json"
+python3 - "$TMP/vm.json" "$TMP/fw.json" "$VPC_NETWORK" "$RUN_SUBNET_RANGE" <<'PY' || die "no firewall rule admits $RUN_SUBNET_RANGE to the VM on both 5432 and 7700; add a narrow one before running this"
+import ipaddress, json, sys
+vm, rules, net, rng = json.load(open(sys.argv[1])), json.load(open(sys.argv[2])), sys.argv[3], ipaddress.ip_network(sys.argv[4])
+tags = set(vm.get("tags", {}).get("items", []))
+def admits(rule, port):
+    if rule.get("direction") != "INGRESS" or rule.get("disabled") or not rule["network"].endswith("/" + net):
+        return False
+    if rule.get("targetTags") and not tags & set(rule["targetTags"]):
+        return False
+    if rule.get("targetServiceAccounts"):
+        return False
+    if not any(rng.subnet_of(ipaddress.ip_network(s)) for s in rule.get("sourceRanges", [])):
+        return False
+    for a in rule.get("allowed", []):
+        if a["IPProtocol"] in ("tcp", "all"):
+            if "ports" not in a:
+                return True
+            for p in a["ports"]:
+                lo, _, hi = p.partition("-")
+                if int(lo) <= port <= int(hi or lo):
+                    return True
+    return False
+ok = True
+for port in (5432, 7700):
+    names = [r["name"] for r in rules if admits(r, port)]
+    print(f"preflight: tcp:{port} from {rng} admitted by: {', '.join(names) or 'NOTHING'}", file=sys.stderr)
+    ok &= bool(names)
+sys.exit(0 if ok else 1)
+PY
+log "preflight: [OK] firewall admits $RUN_SUBNET_RANGE to the VM on 5432 and 7700"
+
+# ---------------------------------------------------------------- env helpers
+describe_service() { gc run services describe "$RUN_SERVICE" --region "$RUN_REGION" --format=json; }
+
+# NAME SHA256 per env var, sorted. A secret reference is hashed as its JSON.
+env_hashes() {
+  python3 - "$1" <<'PY'
+import hashlib, json, sys
+env = json.load(open(sys.argv[1]))["spec"]["template"]["spec"]["containers"][0].get("env", [])
+for e in sorted(env, key=lambda e: e["name"]):
+    v = e["value"] if "value" in e else json.dumps(e.get("valueFrom"), sort_keys=True)
+    print(e["name"], hashlib.sha256(v.encode()).hexdigest())
+PY
+}
+
+# Writes the planned change to stdout as JSON: hosts now, whether each var needs
+# repointing, and the network settings now. Never includes a value.
+plan_json() {
+  python3 - "$1" "$VM_INTERNAL_IP" <<'PY'
+import json, sys, urllib.parse as up
+svc, ip = json.load(open(sys.argv[1])), sys.argv[2]
+env = {e["name"]: e for e in svc["spec"]["template"]["spec"]["containers"][0].get("env", [])}
+ann = svc["spec"]["template"]["metadata"].get("annotations", {})
+out = {"vars": {}, "network": ann.get("run.googleapis.com/network-interfaces", ""),
+       "egress": ann.get("run.googleapis.com/vpc-access-egress", "")}
+for name in ("DATABASE_URL", "MEILI_HOST"):
+    e = env.get(name)
+    if e is None or "value" not in e:
+        sys.exit(f"{name} is missing or is a secret reference; this script only repoints plain values")
+    host = up.urlsplit(e["value"]).hostname
+    out["vars"][name] = {"host": host, "change": host != ip}
+print(json.dumps(out))
+PY
+}
+
+# Writes a gcloud --flags-file with the two repointed values. Only the host changes.
+write_flags_file() {
+  python3 - "$1" "$VM_INTERNAL_IP" "$VPC_NETWORK" "$RUN_SUBNET" > "$2" <<'PY'
+import json, sys, urllib.parse as up
+svc, ip, net, subnet = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3], sys.argv[4]
+env = {e["name"]: e["value"] for e in svc["spec"]["template"]["spec"]["containers"][0]["env"] if "value" in e}
+def repoint(v):
+    p = up.urlsplit(v)
+    userinfo, at, hostport = p.netloc.rpartition("@")
+    port = f":{p.port}" if p.port else ""
+    return up.urlunsplit(p._replace(netloc=f"{userinfo}{at}{ip}{port}"))
+new = {k: repoint(env[k]) for k in ("DATABASE_URL", "MEILI_HOST")}
+for k in new:
+    assert up.urlsplit(new[k]).hostname == ip and up.urlsplit(new[k]).port == up.urlsplit(env[k]).port
+print(json.dumps({"--network": net, "--subnet": subnet,
+                  "--vpc-egress": "private-ranges-only", "--update-env-vars": new}))
+PY
+  chmod 600 "$2"
+}
+
+# ---------------------------------------------------------------- before
+START_REV=$(serving_revision)
+[[ -n "$START_REV" ]] || die "could not determine the serving revision"
+log "before: serving revision = $START_REV (rollback target)"
+
+describe_service > "$TMP/before.json"
+env_hashes "$TMP/before.json" > "$TMP/before.hashes"
+log "before: env var names and SHA-256 (first 16 hex shown):"
+awk '{printf "    %-20s %s\n", $1, substr($2,1,16)}' "$TMP/before.hashes" >&2
+
+plan=$(plan_json "$TMP/before.json") || die "cannot plan the change"
+read -r need_db need_meili cur_net cur_egress db_host meili_host < <(python3 -c '
+import json,sys; p=json.loads(sys.argv[1]); v=p["vars"]
+print(int(v["DATABASE_URL"]["change"]), int(v["MEILI_HOST"]["change"]),
+      p["network"] or "-", p["egress"] or "-", v["DATABASE_URL"]["host"], v["MEILI_HOST"]["host"])' "$plan")
+log "before: DATABASE_URL host=$db_host  MEILI_HOST host=$meili_host"
+log "before: network-interfaces=$cur_net  vpc-access-egress=$cur_egress"
+
+net_ok=0
+if [[ "$cur_egress" == private-ranges-only ]] &&
+   python3 -c 'import json,sys; n=json.loads(sys.argv[1]); sys.exit(0 if n and n[0].get("network")==sys.argv[2] and n[0].get("subnetwork")==sys.argv[3] else 1)' \
+     "$cur_net" "$VPC_NETWORK" "$RUN_SUBNET" 2>/dev/null; then
+  net_ok=1
+fi
+
+# ---------------------------------------------------------------- change
+if [[ "$need_db" == 0 && "$need_meili" == 0 && "$net_ok" == 1 ]]; then
+  log "change: already on $VPC_NETWORK/$RUN_SUBNET with both hosts at $VM_INTERNAL_IP — nothing to update"
+  CHANGED=0
+else
+  log "change: DATABASE_URL host $db_host -> $VM_INTERNAL_IP; MEILI_HOST host $meili_host -> $VM_INTERNAL_IP"
+  flags="$TMP/flags.json"
+  display="gcloud run services update $RUN_SERVICE --region $RUN_REGION --project $PROJECT --flags-file=<0600 temp file: --network=$VPC_NETWORK --subnet=$RUN_SUBNET --vpc-egress=private-ranges-only --update-env-vars DATABASE_URL=<redacted, host=$VM_INTERNAL_IP>,MEILI_HOST=<redacted, host=$VM_INTERNAL_IP>>"
+  if is_dry_run; then
+    run_shown_as "$display" true
+  else
+    write_flags_file "$TMP/before.json" "$flags"
+    run_shown_as "$display" gc run services update "$RUN_SERVICE" --region "$RUN_REGION" --flags-file "$flags"
+    rm -f "$flags"
+  fi
+  CHANGED=1
+fi
+
+rollback() {
+  log "ROLLBACK: routing 100% of traffic back to $START_REV"
+  run gc run services update-traffic "$RUN_SERVICE" --region "$RUN_REGION" --to-revisions "$START_REV=100"
+  log "ROLLBACK: re-checking production on $START_REV"
+  verify_production "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || log "ROLLBACK: checks STILL failing on $START_REV — investigate now"
+  log "ROLLBACK: note traffic is now pinned to $START_REV and the service template still holds the"
+  log "          new settings. Fix the cause, then either re-run this script or deploy and run"
+  log "          'gcloud run services update-traffic $RUN_SERVICE --to-latest --region $RUN_REGION'."
+}
+
+if is_dry_run; then
+  log "after: (dry run) the env check would require exactly these hashes to change:"
+  if [[ "$need_db" == 1 ]]; then log "    DATABASE_URL"; fi
+  if [[ "$need_meili" == 1 ]]; then log "    MEILI_HOST"; fi
+  log "after: (dry run) running the N4 checks against CURRENT production as a baseline"
+  verify_production || log "baseline checks failed — production is unhealthy BEFORE any change"
+  log "DRY RUN complete: nothing was changed"
+  exit 0
+fi
+
+# ---------------------------------------------------------------- env check
+describe_service > "$TMP/after.json"
+env_hashes "$TMP/after.json" > "$TMP/after.hashes"
+log "after: env var names and SHA-256 (first 16 hex shown):"
+awk '{printf "    %-20s %s\n", $1, substr($2,1,16)}' "$TMP/after.hashes" >&2
+changed=$(python3 - "$TMP/before.hashes" "$TMP/after.hashes" <<'PY'
+import sys
+b = dict(l.split() for l in open(sys.argv[1]) if l.strip())
+a = dict(l.split() for l in open(sys.argv[2]) if l.strip())
+if set(a) != set(b):
+    print("NAMES-DIFFER:added=%s,removed=%s" % (sorted(set(a)-set(b)), sorted(set(b)-set(a)))); sys.exit()
+print(" ".join(sorted(k for k in a if a[k] != b[k])) or "none")
+PY
+)
+expected=""
+if [[ "$need_db" == 1 ]]; then expected="DATABASE_URL"; fi
+if [[ "$need_meili" == 1 ]]; then expected="${expected:+$expected }MEILI_HOST"; fi
+log "after: env vars whose hash changed: $changed  (expected: ${expected:-none})"
+if [[ "$changed" != "${expected:-none}" ]]; then
+  log "FAIL: unexpected env change"
+  if [[ "$CHANGED" == 1 ]]; then rollback; fi
+  exit 1
+fi
+plan_after=$(plan_json "$TMP/after.json")
+python3 -c 'import json,sys; v=json.loads(sys.argv[1])["vars"]; sys.exit(0 if not v["DATABASE_URL"]["change"] and not v["MEILI_HOST"]["change"] else 1)' "$plan_after" ||
+  { log "FAIL: hosts are not $VM_INTERNAL_IP after the update"; rollback; exit 1; }
+log "after: [OK] only the expected variables changed and both hosts are $VM_INTERNAL_IP"
+
+# ---------------------------------------------------------------- N4
+new_rev=$(serving_revision)
+log "after: serving revision = $new_rev"
+if ! verify_production; then
+  if [[ "$CHANGED" == 1 ]]; then rollback; fi
+  exit 1
+fi
+log "DONE: $RUN_SERVICE reaches Postgres and Meilisearch at $VM_INTERNAL_IP (revision $new_rev)"

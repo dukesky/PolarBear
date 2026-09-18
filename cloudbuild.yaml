@@ -36,8 +36,12 @@ steps:
       - 'us-central1'
       - '--platform'
       - 'managed'
+      # 1Gi was OOM-killed on a cold start: "Memory limit of 1024 MiB exceeded
+      # with 1039 MiB used" (2026-09-18) — the embedding model plus a tenant's
+      # FAISS index sit right at that edge, so shoppers got intermittent 503s.
+      # Billing is per request with scale-to-zero, so this stays in free tier.
       - '--memory'
-      - '1Gi'
+      - '2Gi'
       - '--allow-unauthenticated'
       # No --set-env-vars here on purpose: deploying with only --image preserves
       # the service's existing environment (MEILI_HOST, MEILI_MASTER_KEY,

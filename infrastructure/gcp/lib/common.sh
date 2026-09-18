@@ -106,6 +106,7 @@ finish() { _DONE=1; exit 0; }
 add_cleanup() { _CLEANUP="$_CLEANUP $1"; }
 keep_path()   { _CLEANUP=$(printf '%s' "$_CLEANUP" | tr ' ' '\n' | { grep -vxF -- "$1" || true; } | tr '\n' ' '); }  # un-register
 arm_recovery() {
+  declare -F "$1" >/dev/null || die "BUG: recovery function '$1' is not defined at the point it is armed"
   if is_dry_run; then log "(dry run) would arm recovery: $1"; return 0; fi
   _RECOVERY=$1
   log "recovery armed: $1 (runs on any exit until disarmed)"
@@ -124,7 +125,8 @@ _on_exit() {
     fn=$_RECOVERY; _RECOVERY=""
     [[ "$rc" == 0 ]] && rc=1
     log "exiting (code $rc) with recovery armed — running $fn"
-    "$fn"
+    if declare -F "$fn" >/dev/null; then "$fn"
+    else alarm "RECOVERY '$fn' DOES NOT EXIST — NOTHING WAS ROLLED BACK" "This is a script bug. Check production by hand now."; fi
   fi
   for p in $_CLEANUP; do rm -rf "$p"; done
   exit "$rc"

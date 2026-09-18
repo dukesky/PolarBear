@@ -482,20 +482,41 @@ DRY_RUN=1 ./infrastructure/gcp/35-rotate-datastore-secrets.sh   # read the plan
 ./infrastructure/gcp/35-rotate-datastore-secrets.sh
 ```
 
-The script snapshots the disk and generates new values that nobody sees. It adds
-a new version of each secret and grants Cloud Run access. It then changes
-compose.yml and the Postgres user on the VM and restarts both containers, and
-**re-pins** Cloud Run to the new version numbers. Finally it proves the old
-values no longer work and moves the `in-use` alias. If anything fails before
-production is verified, it puts everything back and says so.
+The script works in two phases.
+
+**Phase 1, no downtime.** It snapshots the disk. If the backend still has
+`DATABASE_URL` / `MEILI_MASTER_KEY` as plain env vars, it stores their
+**current** values in Secret Manager and switches Cloud Run to read them from there,
+with the values unchanged (`gcloud run services replace` with the service's own spec,
+validated with `--dry-run` first). It then checks that production behaves exactly as before.
+If this phase fails, it puts Cloud Run back as it was and destroys the
+versions it stored. Nothing on the VM has been touched at that point.
+
+**Phase 2, about 2–3 minutes of downtime.** It generates new values that nobody sees,
+updates compose.yml and the Postgres user on the VM, restarts both containers, and
+re-pins Cloud Run to the new versions. That re-pin is a plain `--update-secrets`,
+the same type as before, so nothing risky happens inside the window. If anything fails
+before production is verified, it puts the VM back on the old values and routes
+Cloud Run back to the phase-1 revision, which reads the old values from Secret
+Manager, and says exactly what it restored.
+
+**After success** it moves the `in-use` alias to the new versions, **destroys** the
+versions holding the old (leaked) values and checks they read `DESTROYED`, proves the
+old values are rejected, and cleans up. If the destroy fails, production is
+fine, but it prints the exact `gcloud secrets versions destroy …` commands to run.
+Destroying is safe at that point because no rollback can reach the old
+values any more. **Never route traffic back to a revision from before a rotation.**
+It would reference destroyed versions or dead values.
 
 Done by hand, the same thing is: new version in Secret Manager → change the VM
 (compose.yml + `ALTER USER`) → `docker compose up -d` → `gcloud run services
-update … --update-secrets NAME=secret:NEWVERSION` (re-pin) → verify. Cloud Run
-only picks up a new version when you re-pin it and a new revision starts.
+update … --update-secrets NAME=secret:NEWVERSION` (re-pin) → verify → destroy the
+old versions. Cloud Run only picks up a new version when you re-pin it and a new
+revision starts.
 
-A week later, when you are sure, disable the old versions:
-`gcloud secrets versions disable <N> --secret <name> --project polarbear-dev-479000`.
+Versions left behind by a rolled-back run hold values that were never in service.
+Destroy them when convenient with
+`gcloud secrets versions destroy <N> --secret <name> --project polarbear-dev-479000`.
 
 For the SMTP password: add a new version of `polarbear-smtp-password` yourself,
 then re-run `infrastructure/gcp/50-configure-smtp.sh <sender>`. It re-pins to the

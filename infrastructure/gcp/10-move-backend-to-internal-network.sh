@@ -20,14 +20,21 @@
 #   disappear. Then the N4 production checks (lib/verify-production.sh).
 #
 # ROLLS BACK
-#   If the env check or N4 fails: routes 100% of traffic back to the revision
-#   that was serving when the script started, re-runs the checks, and exits
-#   non-zero.
+#   Recovery is armed just before the update. From then on ANY exit short of
+#   verified success rolls back: a failed check, a crashed describe/verify
+#   call, a set -e abort, Ctrl-C. The rollback routes 100% of traffic back to
+#   the revision that was serving when the script started, reads it back,
+#   re-runs the checks, and ends with a banner saying what is and is not
+#   restored, plus the manual command if the rollback itself failed. The script
+#   then exits non-zero.
 #
 # SAFE TO RE-RUN: if the service is already on the internal network with both
 # hosts repointed, it skips the update and only re-runs the checks.
 # Values of env vars are never printed, logged or written outside a 0600 temp
 # dir that is deleted on exit.
+# OUTSIDE THIS SCRIPT'S CONTROL: if gcloud itself rejects the update, its own
+# error message could in principle echo part of an argument or flags-file value
+# to stderr. The script cannot redact gcloud's output.
 #
 # Usage:  DRY_RUN=1 ./10-move-backend-to-internal-network.sh    # show the plan, change nothing
 #         ./10-move-backend-to-internal-network.sh
@@ -43,7 +50,7 @@ require gcloud python3 curl
 banner "10: move $RUN_SERVICE onto $VPC_NETWORK/$RUN_SUBNET -> $VM_INTERNAL_IP"
 
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+add_cleanup "$TMP"   # removed by the EXIT handler in lib/common.sh, on every exit path
 
 # ---------------------------------------------------------------- preflight
 log "preflight: internal address $VM_INTERNAL_ADDRESS_NAME"
@@ -174,6 +181,44 @@ if [[ "$cur_egress" == private-ranges-only ]] &&
   net_ok=1
 fi
 
+# ---------------------------------------------------------------- rollback
+# Recovery for this script. Runs from the EXIT handler (lib/common.sh) on ANY exit
+# while armed, including a set -e abort, a crashing verify step or Ctrl-C, with set +e.
+# Best effort: it tries everything, then says exactly what is and is not restored.
+rollback() {
+  local problems="" now
+  log "ROLLBACK: routing 100% of traffic back to $START_REV"
+  if run gc run services update-traffic "$RUN_SERVICE" --region "$RUN_REGION" --to-revisions "$START_REV=100"; then
+    now=$(serving_revision 2>/dev/null)
+    if [[ "$now" == "$START_REV" ]]; then log "ROLLBACK: [OK] $START_REV serves 100% of traffic"
+    else problems="$problems|serving revision reads back as '${now:-unknown}', not $START_REV"; fi
+  else
+    problems="$problems|gcloud run services update-traffic ... --to-revisions $START_REV=100 FAILED"
+  fi
+  if [[ -z "$problems" ]]; then
+    log "ROLLBACK: re-checking production on $START_REV"
+    verify_production "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ||
+      problems="$problems|production checks still FAIL on $START_REV — the cause may not be this change"
+  fi
+  if [[ -z "$problems" ]]; then
+    alarm "ROLLED BACK — production is on $START_REV again and passes the checks" \
+      "Restored:     100% of traffic on $START_REV (the revision serving before this script)." \
+      "NOT restored: the service TEMPLATE still holds the new network + env settings, and" \
+      "              traffic is PINNED to $START_REV, so a plain deploy would not take traffic." \
+      "To finish:    fix the cause and re-run this script, or restore the old settings and run" \
+      "              gcloud run services update-traffic $RUN_SERVICE --to-latest --region $RUN_REGION --project $PROJECT"
+  else
+    local IFS='|'
+    # shellcheck disable=SC2086
+    alarm "ROLLBACK INCOMPLETE — production may still be on the NEW network/env config" \
+      ${problems#|} \
+      "Do this by hand now:" \
+      "  gcloud run services update-traffic $RUN_SERVICE --region $RUN_REGION --project $PROJECT --to-revisions $START_REV=100" \
+      "  gcloud run services describe $RUN_SERVICE --region $RUN_REGION --project $PROJECT --format='value(status.traffic)'" \
+      "Then re-check: bash -c 'source $HERE/lib/common.sh; source $HERE/lib/verify-production.sh; verify_production'"
+  fi
+}
+
 # ---------------------------------------------------------------- change
 if [[ "$need_db" == 0 && "$need_meili" == 0 && "$net_ok" == 1 ]]; then
   log "change: already on $VPC_NETWORK/$RUN_SUBNET with both hosts at $VM_INTERNAL_IP — nothing to update"
@@ -186,21 +231,13 @@ else
     run_shown_as "$display" true
   else
     write_flags_file "$TMP/before.json" "$flags"
+    # From here on, ANY exit that is not the success at the bottom rolls back.
+    arm_recovery rollback
     run_shown_as "$display" gc run services update "$RUN_SERVICE" --region "$RUN_REGION" --flags-file "$flags"
     rm -f "$flags"
   fi
   CHANGED=1
 fi
-
-rollback() {
-  log "ROLLBACK: routing 100% of traffic back to $START_REV"
-  run gc run services update-traffic "$RUN_SERVICE" --region "$RUN_REGION" --to-revisions "$START_REV=100"
-  log "ROLLBACK: re-checking production on $START_REV"
-  verify_production "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || log "ROLLBACK: checks STILL failing on $START_REV — investigate now"
-  log "ROLLBACK: note traffic is now pinned to $START_REV and the service template still holds the"
-  log "          new settings. Fix the cause, then either re-run this script or deploy and run"
-  log "          'gcloud run services update-traffic $RUN_SERVICE --to-latest --region $RUN_REGION'."
-}
 
 if is_dry_run; then
   log "after: (dry run) the env check would require exactly these hashes to change:"
@@ -213,18 +250,20 @@ if is_dry_run; then
 fi
 
 # ---------------------------------------------------------------- env check
+# Every statement below may fail. While recovery is armed, any failure (or a
+# plain `exit 1`) runs rollback() through the EXIT handler.
 describe_service > "$TMP/after.json"
 env_hashes "$TMP/after.json" > "$TMP/after.hashes"
 log "after: env var names and SHA-256 (first 16 hex shown):"
 awk '{printf "    %-20s %s\n", $1, substr($2,1,16)}' "$TMP/after.hashes" >&2
-changed=$(python3 - "$TMP/before.hashes" "$TMP/after.hashes" <<'PY'
+changed=$(python3 - "$TMP/before.hashes" "$TMP/after.hashes" <<'PY2'
 import sys
 b = dict(l.split() for l in open(sys.argv[1]) if l.strip())
 a = dict(l.split() for l in open(sys.argv[2]) if l.strip())
 if set(a) != set(b):
     print("NAMES-DIFFER:added=%s,removed=%s" % (sorted(set(a)-set(b)), sorted(set(b)-set(a)))); sys.exit()
 print(" ".join(sorted(k for k in a if a[k] != b[k])) or "none")
-PY
+PY2
 )
 expected=""
 if [[ "$need_db" == 1 ]]; then expected="DATABASE_URL"; fi
@@ -232,19 +271,21 @@ if [[ "$need_meili" == 1 ]]; then expected="${expected:+$expected }MEILI_HOST"; 
 log "after: env vars whose hash changed: $changed  (expected: ${expected:-none})"
 if [[ "$changed" != "${expected:-none}" ]]; then
   log "FAIL: unexpected env change"
-  if [[ "$CHANGED" == 1 ]]; then rollback; fi
   exit 1
 fi
 plan_after=$(plan_json "$TMP/after.json")
-python3 -c 'import json,sys; v=json.loads(sys.argv[1])["vars"]; sys.exit(0 if not v["DATABASE_URL"]["change"] and not v["MEILI_HOST"]["change"] else 1)' "$plan_after" ||
-  { log "FAIL: hosts are not $VM_INTERNAL_IP after the update"; rollback; exit 1; }
+if ! python3 -c 'import json,sys; v=json.loads(sys.argv[1])["vars"]; sys.exit(0 if not v["DATABASE_URL"]["change"] and not v["MEILI_HOST"]["change"] else 1)' "$plan_after"; then
+  log "FAIL: hosts are not $VM_INTERNAL_IP after the update"
+  exit 1
+fi
 log "after: [OK] only the expected variables changed and both hosts are $VM_INTERNAL_IP"
 
 # ---------------------------------------------------------------- N4
 new_rev=$(serving_revision)
 log "after: serving revision = $new_rev"
 if ! verify_production; then
-  if [[ "$CHANGED" == 1 ]]; then rollback; fi
+  if [[ "$CHANGED" == 0 ]]; then log "FAIL: checks fail and this run changed nothing, so there is nothing to roll back"; fi
   exit 1
 fi
+disarm_recovery
 log "DONE: $RUN_SERVICE reaches Postgres and Meilisearch at $VM_INTERNAL_IP (revision $new_rev)"

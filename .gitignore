@@ -36,6 +36,7 @@ eggs/
 lib/
 lib64/
 !frontend/src/lib/
+!infrastructure/gcp/lib/
 parts/
 sdist/
 var/

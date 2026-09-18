@@ -15,8 +15,11 @@
 #   must fail.
 #
 # ROLLS BACK
-#   If the N4 checks fail, puts each rule's previous source ranges back and
-#   exits non-zero. It does NOT reopen the ports if only the final probe fails.
+#   Recovery is armed before the first rule update. ANY exit before the N4
+#   checks pass (a failed check, a crashed call, a set -e abort, Ctrl-C) puts
+#   each rule's previous source ranges back. It tries every rule even if one
+#   fails, reads them back, prints a banner saying which rules are and are
+#   not restored plus the manual commands, and exits non-zero. It does NOT reopen the ports if only the final probe fails.
 #   That would mean the ports are still open, and reopening them further
 #   would not help.
 #
@@ -60,7 +63,7 @@ fi
 
 # Previous source ranges, one file per rule (bash 3.2 on macOS has no associative arrays).
 PREV_DIR=$(mktemp -d)
-trap 'rm -rf "$PREV_DIR"' EXIT
+add_cleanup "$PREV_DIR"   # removed by the EXIT handler in lib/common.sh
 prev() { cat "$PREV_DIR/$1"; }
 for rule in $FIREWALL_RULES; do
   gc compute firewall-rules describe "$rule" --format='value(sourceRanges.list(separator=","))' > "$PREV_DIR/$rule"
@@ -68,12 +71,34 @@ for rule in $FIREWALL_RULES; do
   log "before: $rule source ranges = $(prev "$rule")"
 done
 
+# Recovery: runs from the EXIT handler (lib/common.sh) on ANY exit while armed, with
+# set +e. It tries EVERY rule even if one fails, reads each back, and reports.
 restore_rules() {
-  local rule
+  local rule want got ok="" bad="" manual=""
   for rule in $FIREWALL_RULES; do
-    log "ROLLBACK: $rule -> $(prev "$rule")"
-    run gc compute firewall-rules update "$rule" --source-ranges "$(prev "$rule")"
+    want=$(prev "$rule")
+    log "ROLLBACK: $rule -> $want"
+    run gc compute firewall-rules update "$rule" --source-ranges "$want" ||
+      log "ROLLBACK: update of $rule FAILED; still checking its current state"
+    got=$(gc compute firewall-rules describe "$rule" --format='value(sourceRanges.list(separator=","))' 2>/dev/null)
+    if [[ "$got" == "$want" ]]; then ok="$ok $rule"
+    else
+      bad="$bad|$rule: source ranges now '${got:-unreadable}', wanted '$want'"
+      manual="$manual|  gcloud compute firewall-rules update $rule --project $PROJECT --source-ranges $want"
+    fi
   done
+  if [[ -z "$bad" ]]; then
+    alarm "FIREWALL RESTORED — the change was undone" \
+      "Restored to their previous source ranges:$ok" \
+      "That previous state had Postgres/Meilisearch open to the internet. Find the cause, then re-run this script."
+  else
+    local IFS='|'
+    # shellcheck disable=SC2086
+    alarm "FIREWALL RESTORE INCOMPLETE — check production search NOW" \
+      "Restored:${ok:- none}" ${bad#|} \
+      "Finish by hand:" ${manual#|} \
+      "Then check: bash -c 'source $HERE/lib/common.sh; source $HERE/lib/verify-production.sh; verify_production'"
+  fi
 }
 
 # ---------------------------------------------------------------- change
@@ -82,6 +107,8 @@ for rule in $FIREWALL_RULES; do
   if [[ "$(prev "$rule")" == "$RUN_SUBNET_RANGE" ]]; then
     log "change: $rule already limited to $RUN_SUBNET_RANGE — skipping"
   else
+    # Armed before the first update. From here, any exit short of passing N4 restores.
+    if [[ -z "$_RECOVERY" ]]; then arm_recovery restore_rules; fi
     run gc compute firewall-rules update "$rule" --source-ranges "$RUN_SUBNET_RANGE"
   fi
 done
@@ -91,9 +118,10 @@ if is_dry_run; then
   log "after: (dry run) N4 checks against CURRENT production as a baseline"
   verify_production || log "baseline checks failed — production is unhealthy BEFORE any change"
 elif ! verify_production "$since"; then
-  restore_rules
-  exit 1
+  exit 1          # recovery is armed: the EXIT handler runs restore_rules
 fi
+# Production works on the narrowed rules. From here on, never reopen the ports.
+disarm_recovery
 
 # ---------------------------------------------------------------- probe
 ext_ip=$(gc compute instances describe "$VM" --zone "$ZONE" --format='value(networkInterfaces[0].accessConfigs[0].natIP)')

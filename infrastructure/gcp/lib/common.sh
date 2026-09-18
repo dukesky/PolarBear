@@ -71,3 +71,54 @@ require() {
 banner() {
   log "=== $* (project=$PROJECT, DRY_RUN=$DRY_RUN) ==="
 }
+
+# alarm TITLE LINE... — an unmissable block on stderr for things a human must act on.
+alarm() {
+  local title=$1; shift
+  {
+    printf '\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
+    printf '!!  %s\n' "$title"
+    printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
+    local l; for l in "$@"; do printf '!!  %s\n' "$l"; done
+    printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n'
+  } >&2
+}
+
+# ------------------------------------------------------------------ exit handling
+# One EXIT trap per script, installed when this file is sourced. It does two things:
+#   1. If a recovery function is ARMED, it runs it. That happens on ANY exit
+#      while armed: a `set -e` abort, an explicit `exit 1`, Ctrl-C/TERM, or a
+#      crash inside a verify step. Arm it just BEFORE the first mutation and
+#      disarm it once the script has verified success. A script that exits
+#      while armed always exits non-zero.
+#   2. Removes the temp paths registered with add_cleanup.
+# Recovery functions run with `set +e`. They must attempt every step, collect
+# failures, and finish with an `alarm` that says what is and is not restored.
+# Under DRY_RUN=1, arm_recovery does nothing, so no recovery can fire. Recovery
+# functions use `run` as well, so a dry run cannot mutate through them either way.
+_RECOVERY=""
+_CLEANUP=""
+add_cleanup() { _CLEANUP="$_CLEANUP $1"; }
+arm_recovery() {
+  if is_dry_run; then log "(dry run) would arm recovery: $1"; return 0; fi
+  _RECOVERY=$1
+  log "recovery armed: $1 (runs on any exit until disarmed)"
+}
+disarm_recovery() { if [[ -n "$_RECOVERY" ]]; then log "recovery disarmed: $_RECOVERY"; fi; _RECOVERY=""; }
+
+_on_exit() {
+  local rc=$? fn p
+  trap - EXIT INT TERM
+  set +e
+  if [[ -n "$_RECOVERY" ]]; then
+    fn=$_RECOVERY; _RECOVERY=""
+    [[ "$rc" == 0 ]] && rc=1
+    log "exiting (code $rc) with recovery armed — running $fn"
+    "$fn"
+  fi
+  for p in $_CLEANUP; do rm -rf "$p"; done
+  exit "$rc"
+}
+trap _on_exit EXIT
+trap 'log "interrupted"; exit 130' INT
+trap 'log "terminated"; exit 143' TERM

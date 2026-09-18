@@ -31,7 +31,10 @@ depends on it.
 This page never contains a password or key. When a step needs one, it reads
 it from where it already lives:
 
-- **Postgres password and Meilisearch master key:** `/opt/polarbear/compose.yml` on the VM.
+- **Postgres password and Meilisearch master key:** `/opt/polarbear/compose.yml` on the VM,
+  `root:root 0600`. Only root can read it, so use `sudo` for `docker compose` commands.
+- **Also, today:** the VM's instance metadata key `startup-script`. It rewrites
+  `compose.yml` on every boot, so the same values are embedded in it.
 - **The same values as the backend sees them:** the env vars of the Cloud Run service
   `polarbear-backend` (`DATABASE_URL`, `MEILI_MASTER_KEY`, and so on).
 
@@ -44,8 +47,8 @@ Don't paste either into a terminal, a doc, or a chat.
 | What | How | Where | Kept for |
 |---|---|---|---|
 | The whole VM disk (OS, Docker, both databases' files, compose.yml) | Snapshot schedule `polarbear-daily-snapshots`, daily, starting 10:00 UTC | Compute Engine snapshots, stored in `us-west1` | 7 days |
-| Postgres, logical dump | `/opt/polarbear/backup.sh`, root cron at **09:17 UTC** | `gs://polarbear-backups-479000/postgres/polarbear-<UTC timestamp>.sql.gz` | 30 days |
-| Meilisearch, native dump (all indexes, settings, API keys) | same script, same run | `gs://polarbear-backups-479000/meilisearch/<UTC timestamp>.dump` | 30 days |
+| Postgres, logical dump | `/opt/polarbear/backup.sh`, root cron at **09:17 UTC** | `gs://polarbear-backups-479000/postgres/polarbear-<run id>.sql.gz` | 30 days, then 7 more days recoverable (soft delete) |
+| Meilisearch, native dump (all indexes, settings, API keys) | same script, same run | `gs://polarbear-backups-479000/meilisearch/<run id>.dump` | 30 days, then 7 more days recoverable (soft delete) |
 | FAISS vector files | Object versioning on the bucket | `gs://polarbear-indexes-479000/tenants/<tenant_id>/` | Up to 3 old versions per file, none older than 30 days |
 | One-off, before the 2026-09-18 network change | Manual snapshot | `polarbear-services-pre-network-2026-09-18` | Until someone deletes it |
 
@@ -60,7 +63,18 @@ Every old revision keeps its own copy, so
 followed by `gcloud run revisions describe <rev> --region us-central1` recovers
 it. Container images can be rebuilt from git with `cloudbuild.yaml`.
 
-Timestamps look like `20260918T091701Z`, always UTC.
+A `<run id>` looks like `20260918T091701Z-3fa9c2`: the UTC start time plus 6
+random hex digits, so two runs never share a name. Both objects from one run
+share the same run id.
+
+The backup bucket also keeps **deleted or overwritten objects for 7 days**
+(soft delete). If backups were deleted by mistake, or by a compromised VM,
+list and bring them back:
+
+```bash
+gcloud storage ls --soft-deleted -l gs://polarbear-backups-479000/postgres/
+gcloud storage restore "gs://polarbear-backups-479000/postgres/polarbear-<run id>.sql.gz#<generation>"
+```
 
 ---
 
@@ -83,7 +97,7 @@ gcloud compute ssh polarbear-services --zone us-west1-b --project polarbear-dev-
 sudo tail -n 30 /var/log/polarbear-backup.log
 ```
 
-A good run ends with `[done] backup <timestamp> OK`. A failed run has a line
+A good run ends with `[done] backup <run id> OK`. A failed run has a line
 like `FAILED step=postgres-upload exit=1`, and the lines above it show what
 went wrong. Every run also writes one entry to Cloud Logging under the log
 name `polarbear-backup`: severity INFO when it works, ERROR when it fails.
@@ -125,9 +139,9 @@ Restoring Postgres happens in two stages. First load the dump into a
 **On the VM** (`gcloud compute ssh polarbear-services --zone us-west1-b --project polarbear-dev-479000`):
 
 ```bash
-TS=20260918T091701Z          # <- the backup you chose
-sudo gsutil cp gs://polarbear-backups-479000/postgres/polarbear-$TS.sql.gz /var/tmp/
-gzip -t /var/tmp/polarbear-$TS.sql.gz && echo "archive OK"
+RUN=20260918T091701Z-3fa9c2      # <- the backup you chose (between polarbear- and .sql.gz)
+sudo gsutil cp gs://polarbear-backups-479000/postgres/polarbear-$RUN.sql.gz /var/tmp/
+gzip -t /var/tmp/polarbear-$RUN.sql.gz && echo "archive OK"
 ```
 **Check:** `archive OK`.
 
@@ -136,7 +150,7 @@ Load it into a scratch database:
 ```bash
 sudo docker exec polarbear-postgres-1 dropdb -U polarbear --if-exists polarbear_restore
 sudo docker exec polarbear-postgres-1 createdb -U polarbear polarbear_restore
-gunzip -c /var/tmp/polarbear-$TS.sql.gz | \
+gunzip -c /var/tmp/polarbear-$RUN.sql.gz | \
   sudo docker exec -i polarbear-postgres-1 psql -q -U polarbear -d polarbear_restore -v ON_ERROR_STOP=1
 ```
 **Check:** no `ERROR` lines, and the last command exits 0 (`echo $?` prints `0`).
@@ -168,7 +182,7 @@ ALTER DATABASE polarbear RENAME TO polarbear_replaced_$STAMP;
 ALTER DATABASE polarbear_restore RENAME TO polarbear;
 ALTER DATABASE polarbear_replaced_$STAMP ALLOW_CONNECTIONS true;
 SQL
-sudo rm -f /var/tmp/polarbear-$TS.sql.gz
+sudo rm -f /var/tmp/polarbear-$RUN.sql.gz
 ```
 **Check:** see [Checking Production After a Restore](#checking-production-after-a-restore).
 
@@ -185,6 +199,20 @@ Meilisearch can only load a dump when it starts. So restoring it means
 **search is down** while it imports. At today's size that takes seconds. At
 100 merchants × 200 products expect under a minute.
 
+### How the Master Key Is Handled Here
+
+Every step below that needs the Meilisearch master key gets it through
+`/opt/polarbear/backup.sh`. That is the same code the nightly backup uses, so
+the key is extracted in exactly one place. It never appears on a command line,
+in `ps`, in your shell history, or on screen:
+
+- `sudo /opt/polarbear/backup.sh meili-request GET /stats [BASE_URL]` makes an
+  authenticated call and prints the JSON.
+- `/opt/polarbear/backup.sh meili-key` prints the key, but only into a pipe or
+  `$(...)`. It refuses to print to a terminal. Below it only runs inside
+  `sudo bash -c '...'`, where the key goes straight into the environment of
+  `docker run -e MEILI_MASTER_KEY`.
+
 ### B1. Check the Dump First, Without Touching Production
 
 This starts a throwaway Meilisearch on port 7701 with its own empty volume,
@@ -193,29 +221,25 @@ loads the dump, and shows what is inside. Production keeps running.
 **On the VM:**
 
 ```bash
-TS=20260918T091701Z          # <- the backup you chose
-sudo gsutil cp gs://polarbear-backups-479000/meilisearch/$TS.dump /var/tmp/restore.dump
+RUN=20260918T091701Z-3fa9c2      # <- the backup you chose (the part after meilisearch/, without .dump)
+sudo gsutil cp gs://polarbear-backups-479000/meilisearch/$RUN.dump /var/tmp/restore.dump
 sudo chmod 644 /var/tmp/restore.dump
 
-# The key is read from compose.yml into this shell only. Never echo it.
-# (sudo drops exported variables, hence --preserve-env below.)
-export MEILI_MASTER_KEY=$(sudo sed -n -E 's/^[[:space:]]*-?[[:space:]]*MEILI_MASTER_KEY=([^[:space:]]+).*/\1/p' /opt/polarbear/compose.yml)
-[ -n "$MEILI_MASTER_KEY" ] && echo "key loaded"
-
-sudo --preserve-env=MEILI_MASTER_KEY docker run -d --name meili-restore-test -p 127.0.0.1:7701:7700 \
-  -e MEILI_MASTER_KEY -e MEILI_ENV=production \
-  -v meili_restore_test:/meili_data -v /var/tmp/restore.dump:/restore.dump:ro \
-  getmeili/meilisearch:v1.12 meilisearch --import-dump /restore.dump
+sudo bash -c 'export MEILI_MASTER_KEY=$(/opt/polarbear/backup.sh meili-key) &&
+  docker run -d --name meili-restore-test -p 127.0.0.1:7701:7700 \
+    -e MEILI_MASTER_KEY -e MEILI_ENV=production \
+    -v meili_restore_test:/meili_data -v /var/tmp/restore.dump:/restore.dump:ro \
+    getmeili/meilisearch:v1.12 meilisearch --import-dump /restore.dump'
 
 # Wait until the import finishes and the server answers
 until curl -fsS http://127.0.0.1:7701/health >/dev/null 2>&1; do sleep 2; done; echo "up"
 
-# Every index and its document count
-curl -sS -H "Authorization: Bearer $MEILI_MASTER_KEY" http://127.0.0.1:7701/stats | \
-  jq '.indexes | map_values(.numberOfDocuments)'
+# Every index and its document count: the restored copy, then production
+sudo /opt/polarbear/backup.sh meili-request GET /stats http://127.0.0.1:7701 | jq '.indexes | map_values(.numberOfDocuments)'
+sudo /opt/polarbear/backup.sh meili-request GET /stats                       | jq '.indexes | map_values(.numberOfDocuments)'
 ```
-**Check:** one `products_<tenant_id>` per merchant, with the product counts
-you expect. To compare with production, run the same `curl` against port `7700`.
+**Check:** the first list has one `products_<tenant_id>` per merchant, with
+the product counts you expect. The second is production, for comparison.
 
 Remove the test copy:
 
@@ -231,25 +255,26 @@ Only do this if B1 looked right. **Search is down from step 2 to step 5.**
 
 ```bash
 cd /opt/polarbear
-# 1. The dump and the key (same as B1). Skip if they are still in this shell.
-TS=20260918T091701Z
-sudo gsutil cp gs://polarbear-backups-479000/meilisearch/$TS.dump /var/tmp/restore.dump
+# 1. The dump (same as B1). Skip if /var/tmp/restore.dump is still there.
+RUN=20260918T091701Z-3fa9c2
+sudo gsutil cp gs://polarbear-backups-479000/meilisearch/$RUN.dump /var/tmp/restore.dump
 sudo chmod 644 /var/tmp/restore.dump
-export MEILI_MASTER_KEY=$(sudo sed -n -E 's/^[[:space:]]*-?[[:space:]]*MEILI_MASTER_KEY=([^[:space:]]+).*/\1/p' /opt/polarbear/compose.yml)
 
 # 2. Stop production Meilisearch (search is now down)
 sudo docker compose -p polarbear -f compose.yml stop meilisearch
 
-# 3. Move the current data aside (kept, not deleted)
+# 3. Move the current data aside (kept, not deleted). Uses the Meilisearch image,
+#    which is already on the VM, so nothing new is downloaded.
 STAMP=$(date -u +%Y%m%d%H%M)
-sudo docker run --rm -v polarbear_meili_data:/meili_data alpine \
-  mv /meili_data/data.ms /meili_data/data.ms.replaced-$STAMP
+sudo docker run --rm --entrypoint sh -v polarbear_meili_data:/meili_data getmeili/meilisearch:v1.12 \
+  -c "mv /meili_data/data.ms /meili_data/data.ms.replaced-$STAMP"
 
-# 4. Import the dump into the production volume, then stop that one-off container
-sudo --preserve-env=MEILI_MASTER_KEY docker run -d --name meili-import -p 127.0.0.1:7701:7700 \
-  -e MEILI_MASTER_KEY -e MEILI_ENV=production \
-  -v polarbear_meili_data:/meili_data -v /var/tmp/restore.dump:/restore.dump:ro \
-  getmeili/meilisearch:v1.12 meilisearch --import-dump /restore.dump
+# 4. Import the dump into the production volume, then remove that one-off container
+sudo bash -c 'export MEILI_MASTER_KEY=$(/opt/polarbear/backup.sh meili-key) &&
+  docker run -d --name meili-import -p 127.0.0.1:7701:7700 \
+    -e MEILI_MASTER_KEY -e MEILI_ENV=production \
+    -v polarbear_meili_data:/meili_data -v /var/tmp/restore.dump:/restore.dump:ro \
+    getmeili/meilisearch:v1.12 meilisearch --import-dump /restore.dump'
 until curl -fsS http://127.0.0.1:7701/health >/dev/null 2>&1; do sleep 2; done; echo "imported"
 sudo docker rm -f meili-import
 
@@ -258,13 +283,14 @@ sudo docker compose -p polarbear -f compose.yml start meilisearch
 until curl -fsS http://127.0.0.1:7700/health >/dev/null 2>&1; do sleep 2; done; echo "up"
 sudo rm -f /var/tmp/restore.dump
 ```
-**Check:** `curl -sS -H "Authorization: Bearer $MEILI_MASTER_KEY" http://127.0.0.1:7700/stats | jq '.indexes | map_values(.numberOfDocuments)'`
+**Check:** `sudo /opt/polarbear/backup.sh meili-request GET /stats | jq '.indexes | map_values(.numberOfDocuments)'`
 shows the counts from B1. Then see [Checking Production After a Restore](#checking-production-after-a-restore).
 
-To undo: stop Meilisearch as in step 2, move `data.ms` aside and rename
-`data.ms.replaced-<stamp>` back to `data.ms` with the same `alpine` trick,
-then start it again. Once you are sure, free the space with
-`sudo docker run --rm -v polarbear_meili_data:/meili_data alpine rm -rf /meili_data/data.ms.replaced-<stamp>`.
+To undo: stop Meilisearch as in step 2, then swap the directories back with
+the same one-off container as step 3
+(`-c "mv /meili_data/data.ms /meili_data/data.ms.bad-$STAMP && mv /meili_data/data.ms.replaced-<stamp> /meili_data/data.ms"`),
+then start it again. Once you are sure the restore is good, free the space
+with the same container and `-c "rm -rf /meili_data/data.ms.replaced-<stamp>"`.
 
 ### B3. Line the Vector Files Up with the Restored Catalog
 
@@ -333,12 +359,15 @@ depend on them), service account and scopes. Only the disk changed.
 gcloud compute instances create polarbear-services \
   --zone us-west1-b --machine-type e2-micro --project polarbear-dev-479000 \
   --disk=name=$NEWDISK,boot=yes,auto-delete=no \
+  --network default --subnet default \
   --private-network-ip polarbear-services-internal \
   --tags postgres-server,meilisearch-server \
   --service-account 399780699896-compute@developer.gserviceaccount.com \
   --scopes https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/pubsub,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/trace.append
 ```
 
+`--network default --subnet default` puts it on the same network as before,
+so the firewall rules (defined per network) cover it.
 `--private-network-ip polarbear-services-internal` gives it back `10.138.0.2`,
 which is the address the backend uses. The tags put it back behind the same
 firewall rules. `devstorage.read_write` lets the nightly backup upload again.

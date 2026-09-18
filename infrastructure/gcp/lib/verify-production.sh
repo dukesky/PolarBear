@@ -38,7 +38,10 @@ print(max(t, key=lambda x: x["percent"])["revisionName"] if t else "")'
 
 _http_code() {  # _http_code URL [curl args...] -> prints the status code only
   local url=$1; shift
-  curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$@" "$url" || echo 000
+  local code
+  # curl prints 000 itself when it cannot connect; `|| true` keeps set -e from firing.
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$@" "$url" 2>/dev/null) || true
+  echo "${code:-000}"
 }
 
 verify_production() {
@@ -113,7 +116,8 @@ _verify_real_search() {
     # Header, not ?key=, so the key does not end up in request-URL logs.
     code=$(curl -sS -o "$tmp" -w '%{http_code}' --max-time 30 -G \
              --data-urlencode "q=$VERIFY_QUERY" --data-urlencode "limit=5" \
-             -H "X-PolarBear-Key: $key" "$url/search/" || echo 000)
+             -H "X-PolarBear-Key: $key" "$url/search/" 2>/dev/null) || true
+    code=${code:-000}
     body=$(cat "$tmp")
     total=$(printf '%s' "$body" | python3 -c 'import json,sys
 try: print(int(json.load(sys.stdin).get("total", 0)))

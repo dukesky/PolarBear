@@ -18,12 +18,14 @@
 #   running and answering, then the N4 production checks.
 #
 # ROLLS BACK
-#   Once the VM is stopped, the script ALWAYS tries to start it again, even if
-#   setting the scopes failed. It does not undo a successful scope change,
-#   because that would need a second outage. If the checks fail afterwards,
-#   it exits non-zero and prints what failed. The pre-change snapshot
-#   (polarbear-services-pre-network-2026-09-18) is the last resort. See
-#   docs/operations/backup-restore.md.
+#   Recovery (recover_vm) is armed just before the stop. On ANY exit before
+#   verified success it runs: a failed set-service-account, a failed start, a
+#   crashed check, a set -e abort, Ctrl-C. It starts the VM if it is not RUNNING
+#   (3 tries). If that fails, it prints the exact state and the snapshot-restore
+#   pointer (runbook section C, snapshot $PRE_CHANGE_SNAPSHOT). If the VM is
+#   up, it runs the full post-start checks and reports where things stand.
+#   It does not undo a successful scope change, because that would need a
+#   second outage. Every exit other than full success is non-zero.
 #
 # SAFE TO RE-RUN: if the scope is already read_write, it skips the restart and only verifies.
 #
@@ -38,6 +40,7 @@ source "$HERE/lib/common.sh"
 source "$HERE/lib/verify-production.sh"
 
 : "${CONTAINER_WAIT_SECONDS:=300}"
+: "${PRE_CHANGE_SNAPSHOT:=polarbear-services-pre-network-2026-09-18}"
 RO=https://www.googleapis.com/auth/devstorage.read_only
 RW=https://www.googleapis.com/auth/devstorage.read_write
 
@@ -51,7 +54,9 @@ refuse() {
 }
 addr=$(gc compute addresses describe "$VM_INTERNAL_ADDRESS_NAME" --region "$REGION" \
          --format='value(address,status)' 2>/dev/null || true)
-if [[ "$addr" == "$VM_INTERNAL_IP"*IN_USE ]]; then
+a_ip=""; a_status=""
+read -r a_ip a_status <<< "$addr" || true
+if [[ "$a_ip" == "$VM_INTERNAL_IP" && "$a_status" == IN_USE ]]; then
   log "preflight: [OK] internal IP $VM_INTERNAL_IP is reserved ($VM_INTERNAL_ADDRESS_NAME, IN_USE)"
 else
   refuse "internal IP is not reserved as $VM_INTERNAL_ADDRESS_NAME (got '$addr'); a restart could change it"
@@ -100,70 +105,120 @@ else
   [[ "$answer" == yes ]] || die "not confirmed ('$answer'); nothing was changed"
 fi
 
-# ---------------------------------------------------------------- change
-since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-STOPPED=0
-STARTED=0
-ensure_started() {
-  if [[ "$STOPPED" == 1 && "$STARTED" == 0 ]]; then
-    log "SAFETY: the VM was stopped and not yet started — starting it now"
-    gc compute instances start "$VM" --zone "$ZONE" && STARTED=1
+# ---------------------------------------------------------------- helpers
+vm_status() { gc compute instances describe "$VM" --zone "$ZONE" --format='value(status)' 2>/dev/null || echo UNKNOWN; }
+
+# Every step is guarded, so this never aborts half way. It prints what it finds
+# and returns non-zero if anything is wrong. Callers run it with `if`.
+post_start_checks() {
+  local failed=0 vm_json status got_scopes new_int_ip deadline ready
+  if vm_json=$(gc compute instances describe "$VM" --zone "$ZONE" --format=json 2>/dev/null) &&
+     status=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["status"])' "$vm_json") &&
+     got_scopes=$(python3 -c 'import json,sys; print("\n".join(sorted(json.loads(sys.argv[1])["serviceAccounts"][0]["scopes"])))' "$vm_json") &&
+     new_int_ip=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["networkInterfaces"][0]["networkIP"])' "$vm_json") &&
+     NEW_EXT_IP=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["networkInterfaces"][0]["accessConfigs"][0].get("natIP",""))' "$vm_json"); then
+    log "check: status=$status internal IP=$new_int_ip external IP=$NEW_EXT_IP (was $old_ext_ip; a change is expected)"
+    if [[ "$status" == RUNNING ]]; then log "check: [OK] VM RUNNING"; else log "check: [FAIL] VM status is $status"; failed=1; fi
+    if [[ "$new_int_ip" == "$VM_INTERNAL_IP" ]]; then log "check: [OK] internal IP unchanged ($VM_INTERNAL_IP)"
+    else log "check: [FAIL] internal IP is $new_int_ip, expected $VM_INTERNAL_IP"; failed=1; fi
+    if [[ "$got_scopes" == "$(sort <<< "$new_scopes")" ]]; then log "check: [OK] scopes are exactly as planned"
+    else log "check: [FAIL] scopes differ from the plan; they are now:"; sed 's/^/    /' <<< "$got_scopes" >&2; failed=1; fi
+  else
+    log "check: [FAIL] could not read the VM's state from the API"; failed=1
+  fi
+
+  log "check: waiting up to ${CONTAINER_WAIT_SECONDS}s for both containers"
+  deadline=$(( $(date +%s) + CONTAINER_WAIT_SECONDS )); ready=0
+  while (( $(date +%s) < deadline )); do
+    if vm_ssh "sudo docker inspect -f '{{.State.Running}}' $PG_CONTAINER $MEILI_CONTAINER | grep -qv true && exit 1;
+               sudo docker exec $PG_CONTAINER pg_isready -q -U $PG_USER -d $PG_DB &&
+               curl -fsS -o /dev/null http://127.0.0.1:7700/health" 2>/dev/null; then
+      ready=1; break
+    fi
+    sleep 10
+  done
+  if [[ "$ready" == 1 ]]; then log "check: [OK] $PG_CONTAINER accepts connections and $MEILI_CONTAINER /health answers"
+  else log "check: [FAIL] containers not ready after ${CONTAINER_WAIT_SECONDS}s"; failed=1; fi
+
+  if vm_ssh "curl -s -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes | grep -qxF '$RW'" 2>/dev/null; then
+    log "check: [OK] the metadata server on the VM reports $RW"
+  else
+    log "check: [FAIL] the metadata server on the VM does not report $RW"; failed=1
+  fi
+
+  verify_production "$since" || failed=1
+  return "$failed"
+}
+
+# Recovery: runs from the EXIT handler (lib/common.sh) with set +e on ANY exit
+# between arming (just before the stop) and verified success. That covers a failed
+# set-service-account, a failed or timed-out start, a crash, and Ctrl-C.
+# Priority 1 is a RUNNING VM. Priority 2 is telling the human exactly where things stand.
+recover_vm() {
+  local status attempt scopes_now
+  status=$(vm_status)
+  log "RECOVERY: VM status is $status"
+  attempt=1
+  while [[ "$status" != RUNNING && "$attempt" -le 3 ]]; do
+    log "RECOVERY: starting $VM (attempt $attempt of 3)"
+    run gc compute instances start "$VM" --zone "$ZONE" || log "RECOVERY: start attempt $attempt failed"
+    status=$(vm_status)
+    if [[ "$status" != RUNNING ]]; then sleep 15; status=$(vm_status); fi
+    attempt=$((attempt + 1))
+  done
+  scopes_now=$(gc compute instances describe "$VM" --zone "$ZONE" --format='value(serviceAccounts[0].scopes)' 2>/dev/null || echo unreadable)
+  if [[ "$status" != RUNNING ]]; then
+    alarm "VM IS NOT RUNNING — PRODUCTION SEARCH IS DOWN" \
+      "VM $VM status: $status   (3 start attempts failed)" \
+      "Scopes now: $scopes_now" \
+      "1. Try again:    gcloud compute instances start $VM --zone $ZONE --project $PROJECT" \
+      "2. Look:         gcloud compute instances describe $VM --zone $ZONE --project $PROJECT --format='yaml(status,statusMessage)'" \
+      "                 gcloud compute instances get-serial-port-output $VM --zone $ZONE --project $PROJECT | tail -50" \
+      "3. If it will not boot: restore the VM from a snapshot, docs/operations/backup-restore.md section C." \
+      "   Pre-change snapshot: $PRE_CHANGE_SNAPSHOT (also: the newest polarbear-daily-snapshots snapshot, if any)."
+    return
+  fi
+  log "RECOVERY: VM is RUNNING; running the post-start checks so you know where things stand"
+  if post_start_checks; then
+    alarm "N6 DID NOT FINISH CLEANLY, BUT PRODUCTION IS UP" \
+      "VM RUNNING, containers healthy, production checks pass." \
+      "Scopes now: $scopes_now" \
+      "If devstorage.read_write is not in that list, the scope change did not happen; re-running this script is safe (it is another short outage)."
+  else
+    alarm "N6 FAILED — VM IS RUNNING BUT CHECKS FAIL (see [FAIL] lines above)" \
+      "Scopes now: $scopes_now" \
+      "Restore service first: docs/operations/backup-restore.md ('Checking Production After a Restore', then section C if needed)." \
+      "Pre-change snapshot: $PRE_CHANGE_SNAPSHOT"
   fi
 }
-trap ensure_started EXIT
 
+# ---------------------------------------------------------------- change
+since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NEW_EXT_IP=""
+# Armed BEFORE the stop: from here, any exit short of verified success runs recover_vm.
+arm_recovery recover_vm
 run gc compute instances stop "$VM" --zone "$ZONE"
-is_dry_run || STOPPED=1
 run gc compute instances set-service-account "$VM" --zone "$ZONE" \
   --service-account "$sa" --scopes "$new_csv"
 run gc compute instances start "$VM" --zone "$ZONE"
-is_dry_run || STARTED=1
 
 if is_dry_run; then
-  log "(dry run) would then wait up to ${CONTAINER_WAIT_SECONDS}s for $PG_CONTAINER and $MEILI_CONTAINER,"
-  log "          check the internal IP is still $VM_INTERNAL_IP, and run the N4 checks."
+  log "(dry run) would then check: VM RUNNING, scopes exactly as planned, internal IP still $VM_INTERNAL_IP,"
+  log "          both containers ready (up to ${CONTAINER_WAIT_SECONDS}s), metadata server reports $RW, and the N4 checks."
+  log "(dry run) on any failure from the stop onwards, recover_vm would start the VM (3 tries) and report."
   log "DRY RUN complete: nothing was changed"
   exit 0
 fi
 
-# ---------------------------------------------------------------- verify VM
-failed=0
-vm_json=$(gc compute instances describe "$VM" --zone "$ZONE" --format=json)
-status=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["status"])' "$vm_json")
-got_scopes=$(python3 -c 'import json,sys; print("\n".join(sorted(json.loads(sys.argv[1])["serviceAccounts"][0]["scopes"])))' "$vm_json")
-new_int_ip=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["networkInterfaces"][0]["networkIP"])' "$vm_json")
-new_ext_ip=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["networkInterfaces"][0]["accessConfigs"][0].get("natIP",""))' "$vm_json")
-log "after: status=$status internal IP=$new_int_ip external IP=$new_ext_ip (was $old_ext_ip; a change is expected)"
-[[ "$status" == RUNNING ]] || { log "FAIL: VM status is $status"; failed=1; }
-[[ "$new_int_ip" == "$VM_INTERNAL_IP" ]] || { log "FAIL: internal IP changed to $new_int_ip"; failed=1; }
-if [[ "$got_scopes" == "$(sort <<< "$new_scopes")" ]]; then log "after: [OK] scopes are exactly as planned"
-else log "FAIL: scopes differ from the plan:"; sed 's/^/    /' <<< "$got_scopes" >&2; failed=1; fi
-
-log "after: waiting up to ${CONTAINER_WAIT_SECONDS}s for both containers"
-deadline=$(( $(date +%s) + CONTAINER_WAIT_SECONDS ))
-ready=0
-while (( $(date +%s) < deadline )); do
-  if vm_ssh "sudo docker inspect -f '{{.State.Running}}' $PG_CONTAINER $MEILI_CONTAINER | grep -qv true && exit 1;
-             sudo docker exec $PG_CONTAINER pg_isready -q -U $PG_USER -d $PG_DB &&
-             curl -fsS -o /dev/null http://127.0.0.1:7700/health" 2>/dev/null; then
-    ready=1; break
-  fi
-  sleep 10
-done
-if [[ "$ready" == 1 ]]; then log "after: [OK] $PG_CONTAINER accepts connections and $MEILI_CONTAINER /health answers"
-else log "FAIL: containers not ready after ${CONTAINER_WAIT_SECONDS}s"; failed=1; fi
-
-if vm_ssh "curl -s -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes | grep -qxF '$RW'"; then
-  log "after: [OK] the metadata server on the VM reports $RW"
-else
-  log "FAIL: metadata server on the VM does not report $RW"; failed=1
+# ---------------------------------------------------------------- verify
+log "after: VM started; verifying"
+if post_start_checks; then
+  disarm_recovery
+  log "DONE: $VM has $RW, internal IP $VM_INTERNAL_IP unchanged, new external IP $NEW_EXT_IP, production checks pass"
+  exit 0
 fi
-
-# ---------------------------------------------------------------- N4
-verify_production "$since" || failed=1
-
-if [[ "$failed" == 1 ]]; then
-  log "N6 FAILED — see above. Restore service first; runbook: docs/operations/backup-restore.md"
-  exit 1
-fi
-log "DONE: $VM has $RW, internal IP $VM_INTERNAL_IP unchanged, new external IP $new_ext_ip, production checks pass"
+disarm_recovery   # the VM is running; recovery would only repeat these same checks
+alarm "N6 FAILED — VM IS RUNNING BUT CHECKS FAIL (see [FAIL] lines above)" \
+  "Restore service first: docs/operations/backup-restore.md ('Checking Production After a Restore', then section C if needed)." \
+  "Pre-change snapshot: $PRE_CHANGE_SNAPSHOT"
+exit 1

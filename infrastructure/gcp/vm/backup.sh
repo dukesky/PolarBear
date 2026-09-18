@@ -3,9 +3,11 @@
 # Installed on the VM by infrastructure/gcp/40-install-backups.sh; runs as root from cron.
 #
 # CHANGES
-#   Uploads two objects per run:
-#     $BACKUP_BUCKET/postgres/polarbear-<UTC ts>.sql.gz   pg_dump of the whole DB, gzipped
-#     $BACKUP_BUCKET/meilisearch/<UTC ts>.dump            a Meilisearch dump (every index,
+#   Uploads two objects per run. <run id> is the UTC time to the second plus 6 random
+#   hex digits, e.g. 20260918T091701Z-3fa9c2, so two runs can never share a name. The
+#   upload also refuses to overwrite an existing object:
+#     $BACKUP_BUCKET/postgres/polarbear-<run id>.sql.gz   pg_dump of the whole DB, gzipped
+#     $BACKUP_BUCKET/meilisearch/<run id>.dump            a Meilisearch dump (every index,
 #                                                         settings, and API keys)
 #   Leaves nothing behind on disk. The local copies and the dump file inside the
 #   Meilisearch container are deleted whether the run succeeds or fails.
@@ -25,6 +27,14 @@
 #
 # Every setting below can be overridden from the environment, e.g. for a test:
 #   sudo BACKUP_BUCKET=gs://does-not-exist-xyz /opt/polarbear/backup.sh   # must fail loudly
+#
+# HELPER SUBCOMMANDS. The restore runbook uses these, so the master key is
+# extracted in exactly one place (read_meili_key below):
+#   backup.sh meili-request METHOD PATH [BASE_URL]  authenticated Meilisearch call, JSON on stdout
+#                                                   (BASE_URL defaults to $MEILI_URL; e.g. http://127.0.0.1:7701)
+#   backup.sh meili-key                             prints the master key for a pipe or $(...);
+#                                                   refuses when stdout is a terminal
+#   DRY_RUN=1 backup.sh                             checks prerequisites, changes nothing
 set -Eeuo pipefail
 umask 077
 
@@ -45,16 +55,42 @@ CLOUD_LOG=${CLOUD_LOG:-1}                                # 0 disables the Cloud 
 DRY_RUN=${DRY_RUN:-0}                                    # 1 = check prerequisites, change nothing
 
 TS=$(date -u +%Y%m%dT%H%M%SZ)
+RUN_ID="$TS-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 STEP=start
 WORK=""
 DUMP_UID=""
 
 log() { printf '%s [%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$STEP" "$*"; }
 
+# THE one place the master key is extracted (backup runs and the runbook's restore
+# steps both come through here). Handles `- MEILI_MASTER_KEY=v` and `MEILI_MASTER_KEY: v`,
+# quoted or not.
 read_meili_key() {
   MEILI_KEY=$(sed -n -E 's/^[[:space:]]*-?[[:space:]]*"?MEILI_MASTER_KEY[[:space:]]*[=:][[:space:]]*"?([^"[:space:]]+)"?[[:space:]]*$/\1/p' "$COMPOSE_FILE" | head -n 1)
   [[ -n "$MEILI_KEY" ]]
 }
+
+# meili METHOD PATH [BASE_URL]: the Authorization header reaches curl through
+# stdin (-K -), so the key is never on a command line, in `ps`, or in the log.
+meili() {
+  printf 'header = "Authorization: Bearer %s"\n' "$MEILI_KEY" |
+    curl -sS --fail-with-body --max-time 60 -K - -X "$1" "${3:-$MEILI_URL}$2"
+}
+
+case "${1:-}" in
+  "") ;;   # a normal backup run, below
+  meili-request)
+    [[ $# -ge 3 ]] || { echo "usage: $0 meili-request METHOD PATH [BASE_URL]" >&2; exit 2; }
+    read_meili_key || { echo "MEILI_MASTER_KEY not found in $COMPOSE_FILE" >&2; exit 1; }
+    meili "$2" "$3" "${4:-}"; echo; exit 0 ;;
+  meili-key)
+    if [[ -t 1 ]]; then
+      echo "refusing to print the master key to a terminal; use it in a pipe or \$(...)" >&2; exit 2
+    fi
+    read_meili_key || { echo "MEILI_MASTER_KEY not found in $COMPOSE_FILE" >&2; exit 1; }
+    printf '%s\n' "$MEILI_KEY"; exit 0 ;;
+  *) echo "unknown subcommand: $1 (see the header of $0)" >&2; exit 2 ;;
+esac
 
 if [[ "$DRY_RUN" == 1 ]]; then
   # Read-only: no dump, no upload, no lock, nothing written to $LOG_FILE.
@@ -69,8 +105,8 @@ if [[ "$DRY_RUN" == 1 ]]; then
   for t in gzip gsutil jq curl flock docker; do
     command -v "$t" >/dev/null || { log "missing tool: $t"; rc=1; }
   done
-  log "would: docker exec $PG_CONTAINER pg_dump -U $PG_USER -d $PG_DB | gzip -9 -> $BACKUP_BUCKET/postgres/polarbear-$TS.sql.gz"
-  log "would: POST $MEILI_URL/dumps, poll the task, docker cp $MEILI_CONTAINER:$MEILI_DUMP_DIR/<uid>.dump -> $BACKUP_BUCKET/meilisearch/$TS.dump, delete local + in-container copies"
+  log "would: docker exec $PG_CONTAINER pg_dump -U $PG_USER -d $PG_DB | gzip -9 -> $BACKUP_BUCKET/postgres/polarbear-$RUN_ID.sql.gz"
+  log "would: POST $MEILI_URL/dumps, poll the task, docker cp $MEILI_CONTAINER:$MEILI_DUMP_DIR/<uid>.dump -> $BACKUP_BUCKET/meilisearch/$RUN_ID.dump, delete local + in-container copies"
   log "would: log each step to $LOG_FILE"
   exit "$rc"
 fi
@@ -87,7 +123,7 @@ on_error() {
   local rc=$?
   trap - ERR
   log "FAILED step=$STEP exit=$rc"
-  cloud_log ERROR "polarbear backup $TS FAILED at step=$STEP exit=$rc (see $LOG_FILE on the VM)"
+  cloud_log ERROR "polarbear backup $RUN_ID FAILED at step=$STEP exit=$rc (see $LOG_FILE on the VM)"
   exit "$rc"
 }
 trap on_error ERR
@@ -100,17 +136,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# meili METHOD PATH — the Authorization header reaches curl through stdin (-K -),
-# so the key is never on a command line, in `ps`, or in the log.
-meili() {
-  printf 'header = "Authorization: Bearer %s"\n' "$MEILI_KEY" |
-    curl -sS --fail-with-body --max-time 60 -K - -X "$1" "$MEILI_URL$2"
-}
-
 upload() {  # upload LOCAL_FILE GS_URL — copy, then prove the object is there and the same size
   local src=$1 dst=$2 local_size remote_size
   local_size=$(stat -c %s "$src")
-  gsutil -q cp "$src" "$dst"
+  # if-generation-match:0 = only create; never overwrite an existing backup object.
+  gsutil -q -h "x-goog-if-generation-match:0" cp "$src" "$dst"
   remote_size=$(gsutil stat "$dst" | awk -F: '/Content-Length/ {gsub(/ /, "", $2); print $2}')
   if [[ "$remote_size" != "$local_size" ]]; then
     log "uploaded size $remote_size != local size $local_size for $dst"
@@ -123,12 +153,12 @@ upload() {  # upload LOCAL_FILE GS_URL — copy, then prove the object is there 
 STEP=lock
 exec 9> "$LOCK_FILE"
 if ! flock -n 9; then log "another backup is still running"; false; fi
-log "backup $TS starting -> $BACKUP_BUCKET"
+log "backup $RUN_ID starting -> $BACKUP_BUCKET"
 WORK=$(mktemp -d "$WORK_PARENT/polarbear-backup.XXXXXX")
 
 # ------------------------------------------------------------------ postgres
 STEP=postgres-dump
-PG_OUT="$WORK/polarbear-$TS.sql.gz"
+PG_OUT="$WORK/polarbear-$RUN_ID.sql.gz"
 # Inside the container pg_dump uses the local socket, so no password is involved.
 docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d "$PG_DB" --no-password | gzip -9 > "$PG_OUT"
 gzip -t "$PG_OUT"
@@ -138,7 +168,7 @@ fi
 log "pg_dump ok ($(stat -c %s "$PG_OUT") bytes gzipped)"
 
 STEP=postgres-upload
-upload "$PG_OUT" "$BACKUP_BUCKET/postgres/polarbear-$TS.sql.gz"
+upload "$PG_OUT" "$BACKUP_BUCKET/postgres/polarbear-$RUN_ID.sql.gz"
 rm -f "$PG_OUT"
 
 # ------------------------------------------------------------------ meilisearch
@@ -169,7 +199,7 @@ DUMP_UID=$(jq -er '.details.dumpUid' <<< "$task")
 log "dump task $task_uid succeeded, dumpUid=$DUMP_UID"
 
 STEP=meili-dump-copy
-MEILI_OUT="$WORK/$TS.dump"
+MEILI_OUT="$WORK/$RUN_ID.dump"
 docker cp "$MEILI_CONTAINER:$MEILI_DUMP_DIR/$DUMP_UID.dump" "$MEILI_OUT" >/dev/null
 [[ -s "$MEILI_OUT" ]] || { log "copied dump is empty"; false; }
 docker exec "$MEILI_CONTAINER" rm -f "$MEILI_DUMP_DIR/$DUMP_UID.dump"
@@ -177,10 +207,10 @@ DUMP_UID=""   # removed; nothing left for cleanup to do in the container
 log "dump copied out of the container and removed from it ($(stat -c %s "$MEILI_OUT") bytes)"
 
 STEP=meili-upload
-upload "$MEILI_OUT" "$BACKUP_BUCKET/meilisearch/$TS.dump"
+upload "$MEILI_OUT" "$BACKUP_BUCKET/meilisearch/$RUN_ID.dump"
 rm -f "$MEILI_OUT"
 
 # ------------------------------------------------------------------ done
 STEP=done
-log "backup $TS OK"
-cloud_log INFO "polarbear backup $TS OK"
+log "backup $RUN_ID OK"
+cloud_log INFO "polarbear backup $RUN_ID OK"

@@ -88,8 +88,10 @@ substitutions:
   #     --substitutions _TAG=$(git rev-parse --short HEAD) \
   #     --project polarbear-dev-479000
   _TAG: 'latest'
-  # Cloud Run URLs are deterministic per service+project; override if yours differs.
-  _BACKEND_URL: 'https://polarbear-backend-399780699896.us-central1.run.app'
+  # The hosted service's public API address: a Cloud Run domain mapping on
+  # polarbear-backend. Baked into the frontend at build time. Self-hosters:
+  # override with your own backend URL.
+  _BACKEND_URL: 'https://polarbear-api.all-path.com'
 
 options:
   logging: CLOUD_LOGGING_ONLY

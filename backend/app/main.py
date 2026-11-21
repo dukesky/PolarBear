@@ -8,12 +8,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.db import create_db_and_tables
 from app.core.users import auth_backend, fastapi_users, google_oauth_client, oauth_redirect_backend
 from app.schemas import UserCreate, UserRead, UserUpdate
+from app.services.search.embedding import load_model
 from contextlib import asynccontextmanager
+import asyncio
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
+    # Load the shared embedding model before serving. Uvicorn does not accept
+    # connections until this finishes, so /health (the startup probe) only
+    # passes once search is ready. Off the event loop, as it is CPU-bound.
+    await asyncio.to_thread(load_model)
     if settings.SECRET_KEY == "dev-secret-change-me":
         print("WARNING: SECRET_KEY is the insecure default — set the SECRET_KEY env var before exposing this deployment.")
     yield

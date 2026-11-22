@@ -46,6 +46,12 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
+# Cloud Run gives this container 1 vCPU, but torch sizes its thread pool from
+# the host and starts ~10 threads that then fight over that one core. Measured
+# under --cpus 1: single-query encode ~110 ms -> ~10 ms, a 64-text index batch
+# 1.6 s -> 0.6 s, and no case where one thread was slower.
+ENV OMP_NUM_THREADS=1
+
 # Copy application code
 COPY . .
 

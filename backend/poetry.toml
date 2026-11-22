@@ -1,0 +1,7 @@
+# Project-level Poetry settings, used by local installs and by the Dockerfile.
+[installer]
+# Install exactly what poetry.lock records for this platform, using the
+# per-package markers in the lock, instead of re-resolving at install time.
+# torch is locked twice (2.9.1 for macOS, 2.9.1+cpu for Linux) and Poetry's
+# install-time re-resolve wrongly picks the Linux-only +cpu build on macOS.
+re-resolve = false

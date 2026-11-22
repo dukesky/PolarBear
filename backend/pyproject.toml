@@ -15,6 +15,9 @@ dependencies = [
     "numpy (>=2.3.5,<3.0.0)",
     "pandas (>=2.3.3,<3.0.0)",
     "sentence-transformers (>=5.1.2,<6.0.0)",
+    # Already required by sentence-transformers; listed here only so the
+    # [tool.poetry.dependencies] entry below can pick where it comes from.
+    "torch (==2.9.1)",
     "python-multipart (>=0.0.20,<0.1.0)",
     "fastapi-users[oauth,sqlalchemy] (>=15.0.5,<16.0.0)",
     "sqlalchemy (>=2.0.51,<3.0.0)",
@@ -26,6 +29,21 @@ dependencies = [
 
 [tool.poetry]
 package-mode = false
+
+# Linux (the Docker image, Cloud Run) gets the CPU-only torch wheel from the
+# PyTorch CPU index. The default Linux wheel on PyPI is the CUDA build and
+# drags in several GB of nvidia-* libraries that Cloud Run, having no GPU,
+# never uses. macOS keeps the normal PyPI wheel, which is CPU-only already.
+[tool.poetry.dependencies]
+torch = [
+    { version = "2.9.1+cpu", source = "pytorch-cpu", markers = "sys_platform == 'linux'" },
+    { version = "2.9.1", markers = "sys_platform != 'linux'" },
+]
+
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.1.1"
